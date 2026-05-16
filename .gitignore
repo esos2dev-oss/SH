@@ -58,6 +58,7 @@ backups/
 
 # Uploads de prueba
 uploads-tmp/
+backend/uploads/
 
 # Privado / temporal
 TODO-PRIVATE.md

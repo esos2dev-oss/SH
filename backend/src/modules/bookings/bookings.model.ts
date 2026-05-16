@@ -4,7 +4,6 @@ import type {
   BookingRow,
   BookingWithJoins,
   BookingStatus,
-  PaymentStatus,
   BookingPaymentRow,
 } from './bookings.types.js';
 import type { ListBookingsQuery, CalendarQuery } from './bookings.validation.js';
@@ -169,68 +168,12 @@ export async function updateStatus(
   return rows[0] ?? null;
 }
 
-export async function recomputePaymentStatus(id: number, exec: Exec = pool): Promise<{
-  importe_pagado: string;
-  importe_total: string;
-  payment_status: PaymentStatus;
-} | null> {
-  const { rows } = await exec.query<{ importe_total: string; sum_paid: string }>(
-    `SELECT b.importe_total::text,
-            COALESCE(SUM(p.monto),0)::text AS sum_paid
-       FROM bookings b
-       LEFT JOIN booking_payments p ON p.booking_id = b.id
-      WHERE b.id = $1
-      GROUP BY b.id`,
-    [id],
-  );
-  const r = rows[0];
-  if (!r) return null;
-  const total = Number(r.importe_total);
-  const paid = Number(r.sum_paid);
-  let status: PaymentStatus = 'pendiente';
-  if (paid >= total && total > 0) status = 'pagado';
-  else if (paid > 0) status = 'parcial';
-
-  await exec.query(
-    `UPDATE bookings SET importe_pagado = $1, payment_status = $2 WHERE id = $3`,
-    [paid, status, id],
-  );
-  return { importe_pagado: String(paid), importe_total: r.importe_total, payment_status: status };
-}
-
-// --- Payments ---
+// Payments — solo listado para retrocompat del endpoint legacy.
+// El resto (insert, recompute, etc.) vive en el modulo payments.
 export async function listPayments(bookingId: number, exec: Exec = pool): Promise<BookingPaymentRow[]> {
   const { rows } = await exec.query<BookingPaymentRow>(
     `SELECT * FROM booking_payments WHERE booking_id = $1 ORDER BY pagado_at DESC`,
     [bookingId],
   );
   return rows;
-}
-
-export async function insertPayment(
-  data: {
-    booking_id: number;
-    monto: number;
-    moneda: string;
-    method: string;
-    referencia: string | null;
-    pagado_at: string | null;
-    registered_by: number;
-    ledger_entry_id: number | null;
-    notas: string | null;
-  },
-  exec: Exec = pool,
-): Promise<BookingPaymentRow> {
-  const { rows } = await exec.query<BookingPaymentRow>(
-    `INSERT INTO booking_payments
-       (booking_id, monto, moneda, method, referencia, pagado_at, registered_by, ledger_entry_id, notas)
-     VALUES ($1, $2, $3, $4, $5, COALESCE($6::timestamptz, NOW()), $7, $8, $9)
-     RETURNING *`,
-    [
-      data.booking_id, data.monto, data.moneda, data.method,
-      data.referencia, data.pagado_at, data.registered_by, data.ledger_entry_id, data.notas,
-    ],
-  );
-  if (!rows[0]) throw new Error('No se pudo crear payment');
-  return rows[0];
 }

@@ -3,20 +3,13 @@
 const API_BASE: string = import.meta.env.VITE_API_URL ?? 'http://localhost:3002';
 
 let accessToken: string | null = null;
-const listeners = new Set<(token: string | null) => void>();
 
 export function setAccessToken(token: string | null): void {
   accessToken = token;
-  for (const fn of listeners) fn(token);
 }
 
 export function getAccessToken(): string | null {
   return accessToken;
-}
-
-export function onTokenChange(fn: (token: string | null) => void): () => void {
-  listeners.add(fn);
-  return () => listeners.delete(fn);
 }
 
 interface ApiSuccess<T> {

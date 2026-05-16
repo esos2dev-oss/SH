@@ -3,7 +3,12 @@ import { toast } from 'sonner';
 import { ArrowDown, ArrowUp, Receipt, ChartLineUp, ChartBar, DownloadSimple } from '@phosphor-icons/react';
 import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
-import { financialReport, financialCsvUrl, customersReport, type FinancialReport, type CustomersReport } from '../api/reports.api';
+import {
+  financialReport, financialCsvUrl, customersReport, kpisReport, paymentMethodsReport,
+  type FinancialReport, type CustomersReport, type KpisReport, type PaymentMethodsReport,
+} from '../api/reports.api';
+import { METHOD_LABELS } from '../../payments/lib/labels';
+import type { PaymentMethod } from '../../payments/api/payments.api';
 import { formatCurrency } from '../../../shared/lib/format';
 
 export default function ReportsPage() {
@@ -12,17 +17,23 @@ export default function ReportsPage() {
   const [dateTo, setDateTo] = useState(today());
   const [financial, setFinancial] = useState<FinancialReport | null>(null);
   const [customers, setCustomers] = useState<CustomersReport | null>(null);
+  const [kpis, setKpis] = useState<KpisReport | null>(null);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodsReport | null>(null);
   const [loading, setLoading] = useState(true);
 
   async function load() {
     setLoading(true);
     try {
-      const [f, c] = await Promise.all([
+      const [f, c, k, pm] = await Promise.all([
         financialReport({ period, dateFrom, dateTo }),
         customersReport(),
+        kpisReport({ dateFrom, dateTo }),
+        paymentMethodsReport({ dateFrom, dateTo }),
       ]);
       setFinancial(f);
       setCustomers(c);
+      setKpis(k);
+      setPaymentMethods(pm);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Error');
     } finally { setLoading(false); }
@@ -65,6 +76,16 @@ export default function ReportsPage() {
           <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="h-9 px-3 rounded-lg border border-border bg-card text-sm outline-none focus:border-primary" />
         </div>
       </div>
+
+      {/* KPIs hoteleros */}
+      {kpis && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Kpi color="blue" icon={ChartLineUp} label="Ocupacion" value={`${kpis.occupancyPct.toFixed(1)}%`} />
+          <Kpi color="emerald" icon={Receipt} label="ADR" value={kpis.adr.toFixed(2)} />
+          <Kpi color="violet" icon={ChartBar} label="RevPAR" value={kpis.revpar.toFixed(2)} />
+          <Kpi color="emerald" icon={Receipt} label="Revenue" value={kpis.revenue.toFixed(2)} />
+        </div>
+      )}
 
       {loading ? (
         <div className="text-center py-12 text-sm text-muted-foreground">Cargando...</div>
@@ -133,6 +154,73 @@ export default function ReportsPage() {
         </>
       )}
 
+      {/* Ingresos por metodo de pago */}
+      {paymentMethods && paymentMethods.by_method.length > 0 && (
+        <div className="bg-card rounded-3xl border border-border shadow-sm p-6">
+          <h3 className="font-semibold mb-4 flex items-center gap-2">
+            <ChartBar size={18} weight="duotone" /> Ingresos por metodo de pago
+          </h3>
+          <div className="overflow-x-auto -mx-6 sm:mx-0">
+          <table className="w-full text-sm min-w-[500px]">
+            <thead className="border-b">
+              <tr className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                <th className="px-3 py-2 text-left">Metodo</th>
+                <th className="px-3 py-2 text-right">Cantidad</th>
+                <th className="px-3 py-2 text-right">Confirmados</th>
+                <th className="px-3 py-2 text-right">Por confirmar</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paymentMethods.by_method.map((m) => (
+                <tr key={m.method} className="border-b last:border-0">
+                  <td className="px-3 py-2 font-medium">{METHOD_LABELS[m.method as PaymentMethod] ?? m.method}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{m.count}</td>
+                  <td className="px-3 py-2 text-right tabular-nums font-bold">
+                    {Object.entries(m.confirmed).map(([cur, t]) => (
+                      <div key={cur}>{formatCurrency(t, cur)}</div>
+                    ))}
+                    {Object.keys(m.confirmed).length === 0 && <span className="text-muted-foreground">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums text-amber-600 dark:text-amber-400">
+                    {Object.entries(m.pending).map(([cur, t]) => (
+                      <div key={cur}>{formatCurrency(t, cur)}</div>
+                    ))}
+                    {Object.keys(m.pending).length === 0 && <span className="text-muted-foreground">—</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          </div>
+        </div>
+      )}
+
+      {/* Top room types */}
+      {kpis && kpis.topRoomTypes.length > 0 && (
+        <div className="bg-card rounded-3xl border border-border shadow-sm p-6">
+          <h3 className="font-semibold mb-4 flex items-center gap-2">
+            <ChartBar size={18} weight="duotone" /> Top tipos de habitacion
+          </h3>
+          <div className="space-y-2">
+            {kpis.topRoomTypes.map((t) => {
+              const max = Math.max(...kpis.topRoomTypes.map((x) => x.revenue));
+              const pct = max > 0 ? (t.revenue / max) * 100 : 0;
+              return (
+                <div key={t.id}>
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="font-medium">{t.nombre}</span>
+                    <span className="tabular-nums">{t.bookings} reservas · <strong>{formatCurrency(t.revenue)}</strong></span>
+                  </div>
+                  <div className="h-2 bg-muted rounded-full overflow-hidden">
+                    <div className="h-full rounded-full bg-blue-500" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Customers report */}
       {customers && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -141,7 +229,8 @@ export default function ReportsPage() {
             {customers.top.length === 0 ? (
               <p className="text-sm text-muted-foreground">Sin huespedes con estancias.</p>
             ) : (
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto -mx-6 sm:mx-0">
+              <table className="w-full text-sm min-w-[420px]">
                 <thead className="border-b">
                   <tr>
                     <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground">#</th>
@@ -161,6 +250,7 @@ export default function ReportsPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
           <div className="bg-card rounded-3xl border border-border shadow-sm p-6">

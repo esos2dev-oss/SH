@@ -6,8 +6,10 @@ import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { EmptyState } from '../../../shared/components/ui/EmptyState';
 import { listRoomTypes, createRoomType, updateRoomType, deleteRoomType, type RoomType } from '../api/rooms.api';
 import { formatCurrency } from '../../../shared/lib/format';
+import { useDialog } from '../../../shared/components/ui/dialog-system';
 
 export default function RoomTypesPage() {
+  const dialog = useDialog();
   const [items, setItems] = useState<RoomType[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -24,7 +26,7 @@ export default function RoomTypesPage() {
   useEffect(() => { void load(); }, []);
 
   async function onDelete(id: number, nombre: string) {
-    if (!confirm(`Desactivar tipo "${nombre}"?`)) return;
+    if (!(await dialog.confirm({ title: `Desactivar tipo "${nombre}"?`, message: 'No podras asignarlo a nuevas habitaciones, pero las existentes lo conservan.', danger: true, confirmLabel: 'Desactivar' }))) return;
     try {
       await deleteRoomType(id);
       toast.success('Tipo desactivado');

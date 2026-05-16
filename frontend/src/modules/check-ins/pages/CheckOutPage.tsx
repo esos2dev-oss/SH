@@ -1,31 +1,63 @@
-// Vista de check-out / detalle del check-in.
+// Vista de check-out expres. Si hay saldo pendiente, bloquea el check-out
+// hasta cobrar o ofrece registrar el pago en el flujo.
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ArrowLeft, CheckCircle, Eye } from '@phosphor-icons/react';
+import { ArrowLeft, CheckCircle, Eye, CurrencyCircleDollar } from '@phosphor-icons/react';
 import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { getBooking, type Booking } from '../../bookings/api/bookings.api';
 import { getCheckIn, checkOut, documentoUrl, type CheckIn } from '../api/check-ins.api';
-import { formatDateTime } from '../../../shared/lib/format';
+import { useQuickPayment, useOnPaymentSaved } from '../../payments/hooks/QuickPaymentProvider';
+import { formatCurrency, formatDateTime } from '../../../shared/lib/format';
 
 export default function CheckOutPage() {
   const { bookingId } = useParams<{ bookingId: string }>();
   const navigate = useNavigate();
+  const quickPay = useQuickPayment();
   const [booking, setBooking] = useState<Booking | null>(null);
   const [checkIn, setCheckIn] = useState<CheckIn | null>(null);
   const [loading, setLoading] = useState(true);
   const [observaciones, setObservaciones] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  const reload = useCallback(async () => {
+    if (!bookingId) return;
+    try {
+      const [b, ci] = await Promise.all([getBooking(Number(bookingId)), getCheckIn(Number(bookingId))]);
+      setBooking(b);
+      setCheckIn(ci);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Error');
+    }
+  }, [bookingId]);
+
   useEffect(() => {
     if (!bookingId) return;
-    void Promise.all([getBooking(Number(bookingId)), getCheckIn(Number(bookingId))])
-      .then(([b, ci]) => { setBooking(b); setCheckIn(ci); })
-      .catch((err) => toast.error(err instanceof ApiError ? err.message : 'Error'))
-      .finally(() => setLoading(false));
-  }, [bookingId]);
+    setLoading(true);
+    void reload().finally(() => setLoading(false));
+  }, [bookingId, reload]);
+
+  useOnPaymentSaved(useCallback(() => { void reload(); }, [reload]));
+
+  function openQuickPay() {
+    if (!booking) return;
+    quickPay.open({
+      booking_id: booking.id,
+      monto: booking.importe_pendiente,
+      moneda: booking.moneda,
+      preselected: {
+        kind: 'booking',
+        booking_id: booking.id,
+        customer_id: booking.customer.id,
+        label: `Reserva ${booking.codigo} · Hab. ${booking.room.numero} · ${booking.customer.nombre}`,
+        hint: `Pendiente: ${booking.importe_pendiente.toFixed(2)} ${booking.moneda}`,
+        importe_pendiente: booking.importe_pendiente,
+        moneda: booking.moneda,
+      },
+    });
+  }
 
   async function viewDocumento() {
     if (!bookingId) return;
@@ -88,8 +120,22 @@ export default function CheckOutPage() {
         <form onSubmit={onSubmit} className="bg-card rounded-3xl border border-border shadow-sm p-6 space-y-4">
           <h3 className="font-semibold">Confirmar check-out</h3>
           {booking.importe_pendiente > 0 && (
-            <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl p-3 text-sm text-amber-700 dark:text-amber-400">
-              <strong>Atencion:</strong> hay {booking.importe_pendiente} {booking.moneda} pendientes de pago.
+            <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl p-4 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold text-amber-700 dark:text-amber-300">
+                  Saldo pendiente: {formatCurrency(booking.importe_pendiente, booking.moneda)}
+                </p>
+                <p className="text-[11px] text-amber-700/80 dark:text-amber-300/80">
+                  Registra el pago final antes de confirmar el check-out.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={openQuickPay}
+                className="h-9 px-3 text-xs font-bold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 flex items-center gap-1.5 whitespace-nowrap"
+              >
+                <CurrencyCircleDollar size={14} weight="bold" /> Cobrar saldo
+              </button>
             </div>
           )}
           <div>

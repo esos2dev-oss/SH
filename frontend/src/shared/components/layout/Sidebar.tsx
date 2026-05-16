@@ -8,15 +8,13 @@ import {
   CalendarBlank,
   UserCircle,
   ClipboardText,
+  CurrencyCircleDollar,
   Receipt,
   ChartLineUp,
-  Tag,
-  EnvelopeSimple,
   Gear,
   Users,
   Notebook,
   Calculator,
-  Megaphone,
   SignOut,
   CaretRight,
   Sun,
@@ -35,7 +33,6 @@ interface NavItemDef {
   label: string;
   icon?: IconType;
   roles?: Role[];
-  comingSoon?: boolean;
 }
 
 interface NavGroupDef {
@@ -58,13 +55,26 @@ const NAV: NavEntry[] = [
     icon: Bed,
     roles: ['superadmin', 'admin', 'recepcion', 'limpieza'],
     children: [
-      { to: '/rooms', label: 'Panel' },
+      { to: '/rooms', label: 'Panel', roles: ['superadmin', 'admin', 'recepcion'] },
       { to: '/rooms/types', label: 'Tipos y tarifas', roles: ['superadmin', 'admin'] },
+      { to: '/cleaning', label: 'Limpieza' },
     ],
   },
   { label: 'Reservas', to: '/bookings', icon: CalendarBlank, roles: ['superadmin', 'admin', 'recepcion', 'contabilidad'] },
   { label: 'Calendario', to: '/bookings/calendar', icon: ClipboardText, roles: ['superadmin', 'admin', 'recepcion'] },
+  { label: 'Timeline', to: '/bookings/timeline', icon: ClipboardText, roles: ['superadmin', 'admin', 'recepcion'] },
   { label: 'Huespedes', to: '/customers', icon: UserCircle, roles: ['superadmin', 'admin', 'recepcion', 'contabilidad'] },
+  {
+    label: 'Pagos',
+    icon: CurrencyCircleDollar,
+    roles: ['superadmin', 'admin', 'recepcion', 'contabilidad'],
+    children: [
+      { to: '/payments', label: 'Lista de pagos' },
+      { to: '/payments/bank', label: 'Conciliacion bancaria', roles: ['superadmin', 'admin', 'contabilidad'] },
+      { to: '/payments/cash-closure', label: 'Cierre de caja' },
+      { to: '/payments/settings', label: 'Configuracion', roles: ['superadmin', 'admin'] },
+    ],
+  },
   {
     label: 'Finanzas',
     icon: Calculator,
@@ -72,16 +82,6 @@ const NAV: NavEntry[] = [
     children: [
       { to: '/ledger', label: 'Ingresos / Egresos', icon: Receipt },
       { to: '/reports', label: 'Reportes', icon: ChartLineUp },
-    ],
-  },
-  {
-    label: 'Marketing',
-    icon: Megaphone,
-    roles: ['superadmin', 'admin'],
-    children: [
-      { to: '/promotions', label: 'Promociones', icon: Tag },
-      { to: '/campaigns', label: 'Campanas Email', icon: EnvelopeSimple },
-      { to: '/campaigns/templates', label: 'Plantillas' },
     ],
   },
 ];
@@ -95,12 +95,11 @@ interface NavLinkItemProps {
   to: string;
   icon?: IconType;
   label: string;
-  comingSoon?: boolean;
   onNavigate?: () => void;
   end?: boolean;
 }
 
-function NavLinkItem({ to, icon: Icon, label, comingSoon, onNavigate, end }: NavLinkItemProps) {
+function NavLinkItem({ to, icon: Icon, label, onNavigate, end }: NavLinkItemProps) {
   return (
     <NavLink
       to={to}
@@ -112,7 +111,6 @@ function NavLinkItem({ to, icon: Icon, label, comingSoon, onNavigate, end }: Nav
           isActive
             ? 'bg-primary/10 text-primary font-bold shadow-sm'
             : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground',
-          comingSoon && 'opacity-70',
         )
       }
     >
@@ -123,11 +121,6 @@ function NavLinkItem({ to, icon: Icon, label, comingSoon, onNavigate, end }: Nav
           )}
           {Icon && <Icon size={18} weight={isActive ? 'duotone' : 'regular'} />}
           <span className="flex-1 truncate">{label}</span>
-          {comingSoon && (
-            <span className="text-[9px] font-bold bg-muted text-muted-foreground rounded px-1.5 py-0.5 uppercase">
-              Pronto
-            </span>
-          )}
         </>
       )}
     </NavLink>
@@ -163,10 +156,18 @@ function NavGroup({ group, role, onNavigate }: NavGroupProps) {
       </button>
       {open && (
         <div className="ml-4 mt-0.5 pl-4 border-l border-border space-y-0.5">
-          {visible.map((child) => (
+          {visible.map((child) => {
+            // Si la url de este child es prefix de la url de otro hermano,
+            // forzamos match exacto para evitar activacion doble.
+            // Ej: '/rooms' es prefix de '/rooms/types' -> end=true en '/rooms'.
+            const isPrefixOfSibling = visible.some(
+              (s) => s.to !== child.to && s.to.startsWith(child.to + '/'),
+            );
+            return (
             <NavLink
               key={child.to}
               to={child.to}
+              end={isPrefixOfSibling}
               onClick={onNavigate}
               className={({ isActive }) =>
                 cn(
@@ -174,20 +175,13 @@ function NavGroup({ group, role, onNavigate }: NavGroupProps) {
                   isActive
                     ? 'bg-primary/10 text-primary font-semibold'
                     : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground',
-                  child.comingSoon && 'opacity-70',
                 )
               }
             >
-              <span className="flex items-center gap-2">
-                <span className="flex-1 truncate">{child.label}</span>
-                {child.comingSoon && (
-                  <span className="text-[9px] font-bold bg-muted text-muted-foreground rounded px-1 uppercase">
-                    Pronto
-                  </span>
-                )}
-              </span>
+              <span className="truncate">{child.label}</span>
             </NavLink>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -252,20 +246,35 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       {/* Navigation */}
       <nav className="space-y-0.5 flex-1 overflow-y-auto -mx-1 px-1">
         <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest px-3 mb-2">Operacion</p>
-        {NAV.filter((entry) => canSee(entry, user.role)).map((entry) =>
-          isGroup(entry) ? (
-            <NavGroup key={entry.label} group={entry} role={user.role} onNavigate={onNavigate} />
-          ) : (
-            <NavLinkItem
-              key={entry.to}
-              to={entry.to}
-              icon={entry.icon}
-              label={entry.label}
-              comingSoon={entry.comingSoon}
-              onNavigate={onNavigate}
-            />
-          ),
-        )}
+        {(() => {
+          const visibleEntries = NAV.filter((e) => canSee(e, user.role));
+          // Recopilar todas las URLs (top-level + children) para detectar prefijos.
+          const allUrls: string[] = [];
+          for (const e of visibleEntries) {
+            if (isGroup(e)) {
+              for (const c of e.children) if (canSee(c, user.role)) allUrls.push(c.to);
+            } else {
+              allUrls.push(e.to);
+            }
+          }
+          const isPrefixOfOther = (url: string) =>
+            allUrls.some((u) => u !== url && u.startsWith(url + '/'));
+
+          return visibleEntries.map((entry) =>
+            isGroup(entry) ? (
+              <NavGroup key={entry.label} group={entry} role={user.role} onNavigate={onNavigate} />
+            ) : (
+              <NavLinkItem
+                key={entry.to}
+                to={entry.to}
+                icon={entry.icon}
+                label={entry.label}
+                onNavigate={onNavigate}
+                end={isPrefixOfOther(entry.to)}
+              />
+            ),
+          );
+        })()}
 
         {(user.role === 'superadmin' || user.role === 'admin') && (
           <>
@@ -273,7 +282,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             {user.role === 'superadmin' && (
               <NavLinkItem to="/settings/users" icon={Users} label="Usuarios" onNavigate={onNavigate} />
             )}
-            <NavLinkItem to="/settings/audit" icon={Notebook} label="Audit log" comingSoon onNavigate={onNavigate} />
+            <NavLinkItem to="/settings/audit" icon={Notebook} label="Audit log" onNavigate={onNavigate} />
           </>
         )}
       </nav>
@@ -297,7 +306,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         </button>
 
         {(user.role === 'superadmin' || user.role === 'admin') && (
-          <NavLinkItem to="/settings" icon={Gear} label="Configuracion" comingSoon onNavigate={onNavigate} />
+          <NavLinkItem to="/settings" icon={Gear} label="Configuracion" onNavigate={onNavigate} />
         )}
 
         <div className="flex items-center gap-3 px-2">

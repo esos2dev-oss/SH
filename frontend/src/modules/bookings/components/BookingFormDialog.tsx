@@ -1,10 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { toast } from 'sonner';
-import { X, Tag } from '@phosphor-icons/react';
+import { X } from '@phosphor-icons/react';
 import { ApiError } from '../../../shared/api/client';
 import { listCustomers, type Customer } from '../../customers/api/customers.api';
 import { availability, createBooking, type BookingPeriod, type AvailabilityRoom } from '../api/bookings.api';
-import { validatePromotion } from '../../promotions/api/promotions.api';
 import { formatCurrency } from '../../../shared/lib/format';
 
 interface Props {
@@ -21,8 +20,6 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
   const [huespedes, setHuespedes] = useState(1);
   const [available, setAvailable] = useState<AvailabilityRoom[]>([]);
   const [roomId, setRoomId] = useState<number | ''>('');
-  const [promoCode, setPromoCode] = useState('');
-  const [promoFeedback, setPromoFeedback] = useState<{ valid: boolean; reason?: string } | null>(null);
   const [notas, setNotas] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -39,16 +36,6 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
       .then((rs) => setAvailable(rs))
       .catch(() => setAvailable([]));
   }, [fechaEntrada, fechaSalida, huespedes]);
-
-  async function checkPromo() {
-    if (!promoCode.trim() || !fechaEntrada || !fechaSalida) return;
-    try {
-      const res = await validatePromotion({ codigo: promoCode.trim(), fecha_entrada: fechaEntrada, fecha_salida: fechaSalida });
-      setPromoFeedback({ valid: res.valid, ...(res.reason !== undefined ? { reason: res.reason } : {}) });
-    } catch {
-      setPromoFeedback({ valid: false, reason: 'Error validando' });
-    }
-  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -67,7 +54,6 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
         fecha_entrada: entradaIso,
         fecha_salida: salidaIso,
         huespedes,
-        promotion_code: promoCode.trim() || null,
         notas: notas.trim() || null,
       });
       toast.success(`Reserva ${created.codigo} creada`);
@@ -139,21 +125,6 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
               )}
             </div>
           )}
-
-          {/* Promo code */}
-          <div>
-            <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block px-1">Codigo de promocion (opcional)</label>
-            <div className="flex gap-2">
-              <input value={promoCode} onChange={(e) => { setPromoCode(e.target.value); setPromoFeedback(null); }} className="flex-1 h-11 px-4 rounded-xl border border-border bg-muted/50 text-sm outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 focus:bg-card" placeholder="VERANO20" />
-              <button type="button" onClick={checkPromo} disabled={!promoCode.trim() || !fechaEntrada || !fechaSalida} className="h-11 px-4 text-sm font-semibold border border-border bg-card rounded-xl hover:bg-muted disabled:opacity-50">Validar</button>
-            </div>
-            {promoFeedback && (
-              <p className={`mt-1 text-xs ${promoFeedback.valid ? 'text-emerald-600' : 'text-destructive'}`}>
-                <Tag size={12} className="inline mr-1" />
-                {promoFeedback.valid ? 'Codigo valido — se aplicara al crear' : (promoFeedback.reason ?? 'Codigo invalido')}
-              </p>
-            )}
-          </div>
 
           {/* Notas */}
           <div>

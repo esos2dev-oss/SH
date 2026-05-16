@@ -7,9 +7,13 @@ import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { getCustomer, getCustomerTimeline, type Customer, type CustomerTimeline } from '../api/customers.api';
 import { formatCurrency, formatDate, formatDateTime } from '../../../shared/lib/format';
 import { BookingStatusBadge } from '../../../shared/components/ui/StatusBadge';
+import { GuestStatement } from '../../payments/components/GuestStatement';
+import { useQuickPayment } from '../../payments/hooks/QuickPaymentProvider';
+import { CurrencyCircleDollar } from '@phosphor-icons/react';
 
 export default function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const quickPay = useQuickPayment();
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [timeline, setTimeline] = useState<CustomerTimeline | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,7 +36,30 @@ export default function CustomerDetailPage() {
     <div className="space-y-6 max-w-5xl">
       <Link to="/customers" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft size={14} /> Volver a huespedes</Link>
 
-      <PageHeader title={`${customer.nombres} ${customer.apellidos}`} subtitle={`${customer.total_estancias} estancias · ${formatCurrency(customer.total_gastado)}`} />
+      <PageHeader
+        title={`${customer.nombres} ${customer.apellidos}`}
+        subtitle={`${customer.total_estancias} estancias · ${formatCurrency(customer.total_gastado)}`}
+        actions={
+          <button
+            type="button"
+            onClick={() => quickPay.open({
+              customer_id: customer.id,
+              preselected: {
+                kind: 'customer',
+                booking_id: null,
+                customer_id: customer.id,
+                label: `${customer.nombres} ${customer.apellidos}${customer.doc_numero ? ' · ' + customer.doc_numero : ''}`,
+                hint: customer.telefono ? `Tel ${customer.telefono}` : '',
+                importe_pendiente: 0,
+                moneda: null,
+              },
+            })}
+            className="h-10 px-4 text-sm font-bold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 shadow-sm shadow-primary/20 flex items-center gap-1.5"
+          >
+            <CurrencyCircleDollar size={16} weight="duotone" /> Registrar pago
+          </button>
+        }
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="bg-card rounded-3xl border border-border shadow-sm p-6">
@@ -82,6 +109,8 @@ export default function CustomerDetailPage() {
           )}
         </div>
       </div>
+
+      <GuestStatement customerId={customer.id} />
 
       {timeline && timeline.emails.length > 0 && (
         <div className="bg-card rounded-3xl border border-border shadow-sm p-6">

@@ -81,9 +81,8 @@ export async function changePassword(req: Request, res: Response): Promise<void>
 }
 
 export async function forgotPassword(req: Request, res: Response): Promise<void> {
-  // Acepta email pero siempre responde 200 sin revelar existencia.
-  forgotPasswordSchema.parse(req.body);
-  // TODO Fase 02 final: implementar generacion de token + envio Resend
+  const { email } = forgotPasswordSchema.parse(req.body);
+  await authService.forgotPassword(email);
   ok(res, { message: 'Si el email existe, recibiras instrucciones para restablecer la password.' });
 }
 

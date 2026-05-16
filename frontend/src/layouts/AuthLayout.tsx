@@ -1,4 +1,4 @@
-// Layout para login y set-password (sin sidebar).
+// Layout para login y set-password. Sin sidebar. La pagina hija decide su propio fondo.
 
 import { Outlet, Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -9,7 +9,10 @@ export function AuthLayout() {
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <span className="text-sm text-muted-foreground">Cargando sesion...</span>
+        <span className="text-sm text-muted-foreground inline-flex items-center gap-2">
+          <span className="w-4 h-4 border-2 border-muted-foreground/30 border-t-primary rounded-full animate-spin" />
+          Cargando sesion...
+        </span>
       </div>
     );
   }
@@ -18,11 +21,5 @@ export function AuthLayout() {
     return <Navigate to="/" replace />;
   }
 
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-900 dark:to-slate-800 p-4">
-      <div className="w-full max-w-md">
-        <Outlet />
-      </div>
-    </div>
-  );
+  return <Outlet />;
 }

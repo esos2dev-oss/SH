@@ -1,7 +1,6 @@
-// Wrapper sobre Resend con render Mustache de plantillas.
-// Si Resend no esta configurado, las llamadas son no-op con log warning.
+// Wrapper sobre Resend. Si Resend no esta configurado, las llamadas son no-op
+// con log warning.
 
-import Mustache from 'mustache';
 import { resend, resendConfigured } from '../config/resend.js';
 import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
@@ -48,6 +47,3 @@ export async function sendEmail(input: SendEmailInput): Promise<SendResult> {
   }
 }
 
-export function renderTemplate(template: string, data: Record<string, unknown>): string {
-  return Mustache.render(template, data);
-}

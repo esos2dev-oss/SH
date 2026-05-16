@@ -16,6 +16,7 @@ import type { Role } from '../../../contexts/AuthContext';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { EmptyState } from '../../../shared/components/ui/EmptyState';
 import { formatDateTime } from '../../../shared/lib/format';
+import { useDialog } from '../../../shared/components/ui/dialog-system';
 
 interface UserPublic {
   id: number;
@@ -38,6 +39,7 @@ const ROLE_BADGES: Record<Role, string> = {
 };
 
 export default function UsersAdminPage() {
+  const dialog = useDialog();
   const [users, setUsers] = useState<UserPublic[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -108,7 +110,12 @@ export default function UsersAdminPage() {
       }
       return;
     }
-    if (!confirm(`Desactivar a ${u.nombre}? No podra iniciar sesion.`)) return;
+    if (!(await dialog.confirm({
+      title: `Desactivar a ${u.nombre}?`,
+      message: 'No podra iniciar sesion. Puedes reactivarlo despues sin perder su historial.',
+      danger: true,
+      confirmLabel: 'Desactivar',
+    }))) return;
     try {
       await api.delete(`/api/users/${u.id}`);
       toast.success('Usuario desactivado');

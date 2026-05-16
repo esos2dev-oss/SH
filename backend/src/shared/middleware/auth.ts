@@ -16,7 +16,7 @@ export function verifyToken(req: Request, _res: Response, next: NextFunction): v
     return next(Errors.unauthorized('Token vacio'));
   }
   try {
-    const payload = jwt.verify(token, env.JWT_ACCESS_SECRET) as JwtAccessPayload;
+    const payload = jwt.verify(token, env.JWT_ACCESS_SECRET) as unknown as JwtAccessPayload;
     req.user = {
       id: payload.sub,
       role: payload.role,
@@ -40,7 +40,7 @@ export function optionalAuth(req: Request, _res: Response, next: NextFunction): 
   }
   const token = header.substring('Bearer '.length).trim();
   try {
-    const payload = jwt.verify(token, env.JWT_ACCESS_SECRET) as JwtAccessPayload;
+    const payload = jwt.verify(token, env.JWT_ACCESS_SECRET) as unknown as JwtAccessPayload;
     req.user = { id: payload.sub, role: payload.role, email: payload.email, nombre: '' };
   } catch {
     // ignorar, sigue sin user

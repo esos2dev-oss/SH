@@ -6,13 +6,16 @@ import { logAudit } from '../../shared/services/audit.service.js';
 import { nextCode } from '../../shared/services/code-generator.service.js';
 import { diffDias, diffSemanas, diffMeses } from '../../shared/utils/dates.js';
 import * as model from './bookings.model.js';
+import * as paymentsService from '../payments/payments.service.js';
+import type { PaymentPublic } from '../payments/payments.types.js';
+import type { CreatePaymentInput as PaymentsCreateInput } from '../payments/payments.validation.js';
 import type {
   CreateBookingInput,
   UpdateBookingInput,
+  MoveBookingInput,
   ListBookingsQuery,
   CalendarQuery,
   AvailabilityQuery,
-  CreatePaymentInput,
   CancelInput,
 } from './bookings.validation.js';
 import type {
@@ -166,29 +169,8 @@ export async function create(input: CreateBookingInput, actorId: number): Promis
     // Calculo
     const { unidades, tarifa } = unitsAndTariff(input.period, new Date(input.fecha_entrada), new Date(input.fecha_salida), room);
 
-    let descuentoPct = input.descuento_pct ?? 0;
-    let descuentoMonto = input.descuento_monto ?? 0;
-    let promotionId: number | null = null;
-
-    // Aplicar promocion si codigo
-    if (input.promotion_code) {
-      const { rows: promoRows } = await client.query<{ id: number; kind: string; valor: string; condiciones: Record<string, unknown>; max_usos: number | null; usos_actuales: number }>(
-        `SELECT id, kind, valor, condiciones, max_usos, usos_actuales
-           FROM promotions
-          WHERE codigo = $1 AND active = true
-            AND fecha_inicio <= $2::date AND fecha_fin >= $2::date`,
-        [input.promotion_code, input.fecha_entrada.slice(0, 10)],
-      );
-      const promo = promoRows[0];
-      if (!promo) throw new AppError('Codigo de promocion invalido o expirado', 400, 'INVALID_PROMOTION');
-      if (promo.max_usos !== null && promo.usos_actuales >= promo.max_usos) {
-        throw new AppError('La promocion alcanzo su limite de usos', 400, 'INVALID_PROMOTION');
-      }
-      promotionId = promo.id;
-      const valor = Number(promo.valor);
-      if (promo.kind === 'porcentaje') descuentoPct = Math.max(descuentoPct, valor);
-      else descuentoMonto = Math.max(descuentoMonto, valor);
-    }
+    const descuentoPct = input.descuento_pct ?? 0;
+    const descuentoMonto = input.descuento_monto ?? 0;
 
     const subtotal = tarifa * unidades;
     const descontadoPct = subtotal * (descuentoPct / 100);
@@ -215,15 +197,6 @@ export async function create(input: CreateBookingInput, actorId: number): Promis
       client,
     );
 
-    if (promotionId !== null) {
-      await client.query(
-        `INSERT INTO booking_promotions (booking_id, promotion_id, descuento_aplicado)
-         VALUES ($1, $2, $3)`,
-        [inserted.id, promotionId, Math.round((descontadoPct + descuentoMonto) * 100) / 100],
-      );
-      await client.query(`UPDATE promotions SET usos_actuales = usos_actuales + 1 WHERE id = $1`, [promotionId]);
-    }
-
     await logAudit(
       {
         userId: actorId,
@@ -236,6 +209,46 @@ export async function create(input: CreateBookingInput, actorId: number): Promis
     );
 
     const full = await model.findById(inserted.id, client);
+    if (!full) throw Errors.internal();
+    return toPublic(full);
+  });
+}
+
+export async function move(id: number, input: MoveBookingInput, actorId: number): Promise<BookingPublic> {
+  return withTransaction(async (client) => {
+    const before = await model.findById(id, client);
+    if (!before) throw Errors.notFound('Reserva no encontrada');
+    if (!['pendiente', 'confirmada', 'en_curso'].includes(before.status)) {
+      throw Errors.validation(`No se puede mover una reserva en estado ${before.status}`);
+    }
+
+    const newRoomId = input.room_id ?? before.room_id;
+    const newFE = input.fecha_entrada ?? before.fecha_entrada.toISOString();
+    const newFS = input.fecha_salida ?? before.fecha_salida.toISOString();
+
+    if (new Date(newFS) <= new Date(newFE)) {
+      throw Errors.validation('fecha_salida debe ser posterior a fecha_entrada');
+    }
+
+    if (await model.checkOverlap(newRoomId, newFE, newFS, id, client)) {
+      throw new AppError('La habitacion ya esta reservada en ese periodo', 409, 'OVERLAP_CONFLICT');
+    }
+
+    await client.query(
+      `UPDATE bookings SET room_id = $1, fecha_entrada = $2::timestamptz, fecha_salida = $3::timestamptz, updated_at = NOW() WHERE id = $4`,
+      [newRoomId, newFE, newFS, id],
+    );
+
+    await logAudit({
+      userId: actorId,
+      action: 'update',
+      entity: 'bookings',
+      entityId: id,
+      before: { room_id: before.room_id, fecha_entrada: before.fecha_entrada, fecha_salida: before.fecha_salida },
+      after: { room_id: newRoomId, fecha_entrada: newFE, fecha_salida: newFS },
+    }, client);
+
+    const full = await model.findById(id, client);
     if (!full) throw Errors.internal();
     return toPublic(full);
   });
@@ -302,79 +315,27 @@ export async function cancel(id: number, input: CancelInput, actorId: number): P
   return transition(id, 'cancelada', actorId, input.reason);
 }
 
-// Payments
+// Payments — wrappers que delegan al modulo payments para mantener compatibilidad
+// con la ruta legacy POST/GET /api/bookings/:id/payments.
+
 export async function listPayments(bookingId: number): Promise<BookingPaymentRow[]> {
   const exists = await model.findById(bookingId);
   if (!exists) throw Errors.notFound('Reserva no encontrada');
   return model.listPayments(bookingId);
 }
 
-export async function addPayment(bookingId: number, input: CreatePaymentInput, actorId: number): Promise<{
-  payment: BookingPaymentRow;
-  booking: BookingPublic;
-}> {
-  return withTransaction(async (client) => {
-    const before = await model.findById(bookingId, client);
-    if (!before) throw Errors.notFound('Reserva no encontrada');
-    const total = Number(before.importe_total);
-    const paid = Number(before.importe_pagado);
-    if (paid + input.monto > total + 0.001) {
-      throw new AppError('El monto excede el importe total pendiente', 409, 'PAYMENT_EXCEEDS_TOTAL');
-    }
-
-    // Crear ledger entry
-    const codigo = await nextCode('LG', new Date().getFullYear(), client);
-    const { rows: catRows } = await client.query<{ id: number }>(
-      `SELECT id FROM ledger_categories WHERE slug = 'alquiler' AND type = 'ingreso' LIMIT 1`,
-    );
-    const categoryId = catRows[0]?.id ?? null;
-    if (categoryId === null) {
-      throw Errors.internal('Categoria ledger "alquiler" no encontrada — verificar seeds');
-    }
-    const { rows: ledgerRows } = await client.query<{ id: number }>(
-      `INSERT INTO ledger_entries
-         (codigo, type, category_id, fecha, descripcion, monto, moneda, method, booking_id, customer_id, registered_by)
-       VALUES ($1, 'ingreso', $2, COALESCE($3::timestamptz, NOW())::date, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING id`,
-      [
-        codigo, categoryId, input.pagado_at ?? null,
-        `Pago reserva ${before.codigo}`,
-        input.monto, before.moneda, input.method,
-        bookingId, before.customer_id, actorId,
-      ],
-    );
-    const ledgerEntryId = ledgerRows[0]?.id ?? null;
-
-    const payment = await model.insertPayment(
-      {
-        booking_id: bookingId,
-        monto: input.monto,
-        moneda: before.moneda,
-        method: input.method,
-        referencia: input.referencia ?? null,
-        pagado_at: input.pagado_at ?? null,
-        registered_by: actorId,
-        ledger_entry_id: ledgerEntryId,
-        notas: input.notas ?? null,
-      },
-      client,
-    );
-
-    await model.recomputePaymentStatus(bookingId, client);
-
-    await logAudit(
-      {
-        userId: actorId,
-        action: 'create',
-        entity: 'booking_payments',
-        entityId: payment.id,
-        after: { booking_id: bookingId, monto: input.monto, method: input.method },
-      },
-      client,
-    );
-
-    const full = await model.findById(bookingId, client);
-    if (!full) throw Errors.internal();
-    return { payment, booking: toPublic(full) };
-  });
+export async function addPayment(
+  bookingId: number,
+  input: PaymentsCreateInput,
+  actorId: number,
+  actorRole: string | null,
+): Promise<{ payment: PaymentPublic; booking: BookingPublic }> {
+  // Forzar el booking_id desde el path
+  const payment = await paymentsService.create(
+    { ...input, booking_id: bookingId },
+    actorId,
+    actorRole,
+  );
+  const booking = await getById(bookingId);
+  return { payment, booking };
 }

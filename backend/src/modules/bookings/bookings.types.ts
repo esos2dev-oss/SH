@@ -1,7 +1,17 @@
 export type BookingPeriod = 'dia' | 'semana' | 'mes';
 export type BookingStatus = 'pendiente' | 'confirmada' | 'en_curso' | 'finalizada' | 'cancelada' | 'no_show';
 export type PaymentStatus = 'pendiente' | 'parcial' | 'pagado' | 'reembolsado';
-export type PaymentMethod = 'efectivo' | 'tarjeta' | 'transferencia' | 'paypal' | 'otro';
+export type PaymentMethod =
+  | 'efectivo'
+  | 'tarjeta'
+  | 'transferencia'
+  | 'paypal'
+  | 'otro'
+  | 'pago_movil'
+  | 'zelle'
+  | 'punto_venta'
+  | 'efectivo_usd'
+  | 'efectivo_bs';
 
 export interface BookingRow {
   id: number;

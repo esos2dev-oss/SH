@@ -119,7 +119,7 @@ export async function refreshAccessToken(
 
   let payload: JwtRefreshPayload;
   try {
-    payload = jwt.verify(rawRefresh, env.JWT_REFRESH_SECRET) as JwtRefreshPayload;
+    payload = jwt.verify(rawRefresh, env.JWT_REFRESH_SECRET) as unknown as JwtRefreshPayload;
   } catch {
     throw Errors.unauthorized('Refresh token invalido o expirado');
   }
@@ -239,6 +239,58 @@ export async function generatePasswordToken(userId: number): Promise<string> {
   const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
   await authModel.setPasswordToken(userId, raw, expires);
   return raw;
+}
+
+/**
+ * Forgot password: si el email existe y el usuario esta activo, genera token
+ * y envia email con link a /set-password/<token>. Siempre se responde igual al
+ * caller — no revela si el email existe.
+ */
+export async function forgotPassword(email: string): Promise<void> {
+  const { sendEmail } = await import('../../shared/services/email.service.js');
+  const user = await authModel.findUserByEmail(email);
+  if (!user || !user.active) {
+    logger.info({ email }, 'forgot-password: usuario no existe o inactivo (responde 200 igual)');
+    return;
+  }
+  const token = await generatePasswordToken(user.id);
+  const setPasswordUrl = `${env.APP_URL}/set-password/${token}`;
+
+  const result = await sendEmail({
+    to: user.email,
+    subject: 'Restablece tu contrasena',
+    html: `
+      <div style="font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <h2>Hola ${user.nombre},</h2>
+        <p>Recibimos una solicitud para restablecer tu contrasena.</p>
+        <p>Haz click en el boton para definir una nueva contrasena. El enlace expira en 24 horas.</p>
+        <p style="margin: 32px 0;">
+          <a href="${setPasswordUrl}" style="background: #2563eb; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; display: inline-block; font-weight: bold;">
+            Restablecer contrasena
+          </a>
+        </p>
+        <p style="font-size: 12px; color: #6b7280;">
+          Si no fuiste tu, ignora este mensaje y avisa al administrador.
+        </p>
+        <p style="font-size: 12px; color: #6b7280;">
+          Si el boton no funciona, copia este enlace en tu navegador:<br>
+          <code>${setPasswordUrl}</code>
+        </p>
+      </div>
+    `,
+  });
+
+  await logAudit({
+    userId: user.id,
+    action: 'update',
+    entity: 'users',
+    entityId: user.id,
+    after: { forgot_password_email_sent: result.ok },
+  });
+
+  if (!result.ok) {
+    logger.info({ email: user.email, setPasswordUrl }, 'forgot-password: email NO enviado (Resend no configurado). Usa este link manualmente.');
+  }
 }
 
 export async function getCurrentUser(userId: number): Promise<LoginResult['user'] | null> {

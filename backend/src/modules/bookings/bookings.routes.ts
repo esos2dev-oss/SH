@@ -15,6 +15,7 @@ router.get('/:id/payments', roleGuard(['superadmin', 'admin', 'recepcion', 'cont
 
 router.post('/', roleGuard(['superadmin', 'admin', 'recepcion']), asyncHandler(ctrl.create));
 router.patch('/:id', roleGuard(['superadmin', 'admin', 'recepcion']), asyncHandler(ctrl.update));
+router.post('/:id/move', roleGuard(['superadmin', 'admin', 'recepcion']), asyncHandler(ctrl.move));
 router.post('/:id/confirm', roleGuard(['superadmin', 'admin', 'recepcion']), asyncHandler(ctrl.confirm));
 router.post('/:id/cancel', roleGuard(['superadmin', 'admin', 'recepcion']), asyncHandler(ctrl.cancel));
 router.post('/:id/no-show', roleGuard(['superadmin', 'admin', 'recepcion']), asyncHandler(ctrl.noShow));

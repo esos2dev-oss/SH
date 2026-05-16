@@ -127,6 +127,110 @@ router.get('/occupancy', asyncHandler(async (req, res) => {
   });
 }));
 
+// KPIs hoteleros: ocupacion %, ADR, RevPAR
+router.get('/kpis', asyncHandler(async (req, res) => {
+  const q = occupancyQuerySchema.parse(req.query);
+
+  const { rows: totRows } = await pool.query<{ total: string }>(`SELECT COUNT(*)::text AS total FROM rooms WHERE active = true`);
+  const totalRooms = Number(totRows[0]?.total ?? 0);
+
+  // Room-nights vendidas en el rango (suma de dias entre fecha_entrada y fecha_salida intersect rango)
+  const { rows: rnRows } = await pool.query<{ room_nights: string; revenue: string }>(
+    `SELECT COALESCE(SUM(
+              GREATEST(
+                LEAST(b.fecha_salida::date, $2::date + INTERVAL '1 day')
+                - GREATEST(b.fecha_entrada::date, $1::date),
+                0
+              )::int
+            ), 0)::text AS room_nights,
+            COALESCE(SUM(b.importe_total),0)::text AS revenue
+       FROM bookings b
+      WHERE b.status IN ('confirmada','en_curso','finalizada')
+        AND b.fecha_entrada::date <= $2::date
+        AND b.fecha_salida::date > $1::date`,
+    [q.dateFrom, q.dateTo],
+  );
+  const roomNights = Number(rnRows[0]?.room_nights ?? 0);
+  const revenue = Number(rnRows[0]?.revenue ?? 0);
+
+  // Dias en el rango
+  const days = Math.max(1, Math.ceil((new Date(q.dateTo).getTime() - new Date(q.dateFrom).getTime()) / 86_400_000) + 1);
+  const availableRoomNights = totalRooms * days;
+
+  const occupancyPct = availableRoomNights > 0 ? (roomNights / availableRoomNights) * 100 : 0;
+  const adr = roomNights > 0 ? revenue / roomNights : 0;
+  const revpar = availableRoomNights > 0 ? revenue / availableRoomNights : 0;
+
+  // Top room types por revenue
+  const { rows: topTypes } = await pool.query<{ id: number; nombre: string; bookings: string; revenue: string }>(
+    `SELECT rt.id, rt.nombre, COUNT(b.id)::text AS bookings, COALESCE(SUM(b.importe_total),0)::text AS revenue
+       FROM room_types rt
+       LEFT JOIN rooms r ON r.room_type_id = rt.id AND r.active = true
+       LEFT JOIN bookings b ON b.room_id = r.id
+         AND b.status IN ('confirmada','en_curso','finalizada')
+         AND b.fecha_entrada::date <= $2::date
+         AND b.fecha_salida::date > $1::date
+      GROUP BY rt.id, rt.nombre
+      ORDER BY revenue DESC NULLS LAST
+      LIMIT 10`,
+    [q.dateFrom, q.dateTo],
+  );
+
+  ok(res, {
+    rangeFrom: q.dateFrom,
+    rangeTo: q.dateTo,
+    totalRooms,
+    days,
+    roomNights,
+    availableRoomNights,
+    revenue: Math.round(revenue * 100) / 100,
+    occupancyPct: Math.round(occupancyPct * 100) / 100,
+    adr: Math.round(adr * 100) / 100,
+    revpar: Math.round(revpar * 100) / 100,
+    topRoomTypes: topTypes.map((r) => ({
+      id: r.id,
+      nombre: r.nombre,
+      bookings: Number(r.bookings),
+      revenue: Number(r.revenue),
+    })),
+  });
+}));
+
+// Ingresos por metodo de pago en el rango
+router.get('/payment-methods', asyncHandler(async (req, res) => {
+  const q = occupancyQuerySchema.parse(req.query);
+  const { rows } = await pool.query<{ method: string; moneda: string; status: string; total: string; count: string }>(
+    `SELECT method, moneda, status, COALESCE(SUM(monto),0)::text AS total, COUNT(*)::text AS count
+       FROM booking_payments
+      WHERE pagado_at::date BETWEEN $1::date AND $2::date
+      GROUP BY method, moneda, status
+      ORDER BY method, moneda`,
+    [q.dateFrom, q.dateTo],
+  );
+
+  // Agregar por method
+  type Bucket = { method: string; count: number; confirmed: Record<string, number>; pending: Record<string, number> };
+  const byMethod = new Map<string, Bucket>();
+  for (const r of rows) {
+    let b = byMethod.get(r.method);
+    if (!b) {
+      b = { method: r.method, count: 0, confirmed: {}, pending: {} };
+      byMethod.set(r.method, b);
+    }
+    b.count += Number(r.count);
+    if (r.status === 'confirmed') {
+      b.confirmed[r.moneda] = (b.confirmed[r.moneda] ?? 0) + Number(r.total);
+    } else if (r.status === 'pending_confirmation') {
+      b.pending[r.moneda] = (b.pending[r.moneda] ?? 0) + Number(r.total);
+    }
+  }
+  ok(res, {
+    rangeFrom: q.dateFrom,
+    rangeTo: q.dateTo,
+    by_method: Array.from(byMethod.values()),
+  });
+}));
+
 router.get('/customers', asyncHandler(async (_req, res) => {
   const { rows: top } = await pool.query<{
     id: number; nombre: string; estancias: string; gastado: string;

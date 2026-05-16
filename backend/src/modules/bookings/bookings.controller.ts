@@ -5,12 +5,13 @@ import { Errors } from '../../shared/utils/app-error.js';
 import {
   createBookingSchema,
   updateBookingSchema,
+  moveBookingSchema,
   cancelSchema,
   listBookingsQuerySchema,
   calendarQuerySchema,
   availabilityQuerySchema,
-  createPaymentSchema,
 } from './bookings.validation.js';
+import { createPaymentSchema as paymentsCreateSchema } from '../payments/payments.validation.js';
 import * as service from './bookings.service.js';
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
@@ -45,6 +46,12 @@ export async function update(req: Request, res: Response): Promise<void> {
   ok(res, await service.update(id, updateBookingSchema.parse(req.body), req.user.id));
 }
 
+export async function move(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw Errors.unauthorized();
+  const { id } = idParam.parse(req.params);
+  ok(res, await service.move(id, moveBookingSchema.parse(req.body), req.user.id));
+}
+
 export async function confirm(req: Request, res: Response): Promise<void> {
   if (!req.user) throw Errors.unauthorized();
   const { id } = idParam.parse(req.params);
@@ -71,5 +78,8 @@ export async function listPayments(req: Request, res: Response): Promise<void> {
 export async function addPayment(req: Request, res: Response): Promise<void> {
   if (!req.user) throw Errors.unauthorized();
   const { id } = idParam.parse(req.params);
-  ok(res, await service.addPayment(id, createPaymentSchema.parse(req.body), req.user.id), 201);
+  // Inyectar booking_id desde el path y delegar al schema completo de payments
+  const body = { ...req.body, booking_id: id };
+  const input = paymentsCreateSchema.parse(body);
+  ok(res, await service.addPayment(id, input, req.user.id, req.user.role), 201);
 }

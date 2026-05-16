@@ -10,8 +10,7 @@ import { verifyToken } from '../../shared/middleware/auth.js';
 import { roleGuard } from '../../shared/middleware/role-guard.js';
 import { uploadReceipt } from '../../shared/middleware/upload.js';
 import { logAudit } from '../../shared/services/audit.service.js';
-import { uploadObject, buildKey, getPresignedGetUrl, deleteObject } from '../../shared/services/r2.service.js';
-import { r2Configured } from '../../shared/config/r2.js';
+import { putObject, getUrl, removeObject } from '../../shared/services/storage.service.js';
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 const createBodySchema = z.object({
@@ -56,7 +55,6 @@ router.get('/by-entry/:id', asyncHandler(async (req, res) => {
 
 router.post('/', uploadReceipt.single('file'), asyncHandler(async (req, res) => {
   if (!req.user) throw Errors.unauthorized();
-  if (!r2Configured) throw Errors.internal('Storage R2 no esta configurado');
   if (!req.file) throw Errors.validation('Archivo requerido en campo "file"');
   const { ledger_entry_id } = createBodySchema.parse(req.body);
 
@@ -65,13 +63,17 @@ router.post('/', uploadReceipt.single('file'), asyncHandler(async (req, res) => 
   if (!entryRows.length) throw Errors.notFound('Asiento no encontrado');
 
   const kind: 'imagen' | 'pdf' = req.file.mimetype === 'application/pdf' ? 'pdf' : 'imagen';
-  const key = buildKey(`receipts/${ledger_entry_id}`, req.file.originalname);
-  await uploadObject({ key, buffer: req.file.buffer, contentType: req.file.mimetype });
+  const stored = await putObject({
+    folder: `receipts/${ledger_entry_id}`,
+    buffer: req.file.buffer,
+    contentType: req.file.mimetype,
+    originalName: req.file.originalname,
+  });
 
   const { rows } = await pool.query<ReceiptRow>(
     `INSERT INTO receipts (ledger_entry_id, file_url, kind, mime_type, size_bytes, original_name, uploaded_by)
      VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-    [ledger_entry_id, key, kind, req.file.mimetype, req.file.size, req.file.originalname, req.user.id],
+    [ledger_entry_id, stored.storageKey, kind, req.file.mimetype, req.file.size, req.file.originalname, req.user.id],
   );
   const created = rows[0]!;
   await logAudit({
@@ -96,7 +98,7 @@ router.get('/:id/url', asyncHandler(async (req, res) => {
   const { id } = idParam.parse(req.params);
   const { rows } = await pool.query<ReceiptRow>(`SELECT * FROM receipts WHERE id = $1 AND active = true`, [id]);
   if (!rows.length) throw Errors.notFound('Comprobante no encontrado');
-  const url = await getPresignedGetUrl(rows[0]!.file_url, 900);
+  const url = await getUrl(rows[0]!.file_url, 900);
   ok(res, { url, expires_in: 900 });
 }));
 
@@ -105,10 +107,8 @@ router.delete('/:id', roleGuard(['superadmin', 'admin']), asyncHandler(async (re
   const { id } = idParam.parse(req.params);
   const { rows } = await pool.query<ReceiptRow>(`SELECT * FROM receipts WHERE id = $1 AND active = true`, [id]);
   if (!rows.length) throw Errors.notFound();
-  // Soft delete
   await pool.query(`UPDATE receipts SET active = false WHERE id = $1`, [id]);
-  // Hard delete del objeto en R2 (best-effort)
-  try { await deleteObject(rows[0]!.file_url); } catch { /* ignore */ }
+  await removeObject(rows[0]!.file_url);
   await logAudit({ userId: req.user.id, action: 'delete', entity: 'receipts', entityId: id });
   ok(res, { message: 'Comprobante eliminado' });
 }));

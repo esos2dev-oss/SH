@@ -4,7 +4,7 @@
 import type { PoolClient } from 'pg';
 import { pool } from '../config/db.js';
 
-export type CodePrefix = 'BK' | 'LG' | 'INV';
+export type CodePrefix = 'BK' | 'LG' | 'INV' | 'CC' | 'PM';
 
 /**
  * Genera siguiente codigo para un prefijo y año dados.

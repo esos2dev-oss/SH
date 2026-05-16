@@ -2,7 +2,6 @@ import { api } from '../../../shared/api/client';
 
 export type BookingPeriod = 'dia' | 'semana' | 'mes';
 export type BookingStatus = 'pendiente' | 'confirmada' | 'en_curso' | 'finalizada' | 'cancelada' | 'no_show';
-export type PaymentMethod = 'efectivo' | 'tarjeta' | 'transferencia' | 'paypal' | 'otro';
 
 export interface Booking {
   id: number;
@@ -31,20 +30,6 @@ export interface Booking {
   updated_at: string;
 }
 
-export interface BookingPayment {
-  id: number;
-  booking_id: number;
-  monto: string;
-  moneda: string;
-  method: PaymentMethod;
-  referencia: string | null;
-  pagado_at: string;
-  registered_by: number;
-  ledger_entry_id: number | null;
-  notas: string | null;
-  created_at: string;
-}
-
 export interface AvailabilityRoom {
   id: number; numero: string; planta: string | null; room_type: string; tarifa_dia: number;
 }
@@ -63,7 +48,7 @@ export const availability = (params: { dateFrom: string; dateTo: string; room_ty
 export const createBooking = (data: {
   customer_id: number; room_id: number; period: BookingPeriod;
   fecha_entrada: string; fecha_salida: string; huespedes?: number;
-  promotion_code?: string | null; descuento_pct?: number; descuento_monto?: number; notas?: string | null;
+  descuento_pct?: number; descuento_monto?: number; notas?: string | null;
 }) => api.post<Booking>('/api/bookings', data);
 export const updateBooking = (id: number, data: { huespedes?: number; notas?: string | null }) =>
   api.patch<Booking>(`/api/bookings/${id}`, data);
@@ -71,8 +56,5 @@ export const confirmBooking = (id: number) => api.post<Booking>(`/api/bookings/$
 export const cancelBooking = (id: number, reason: string) => api.post<Booking>(`/api/bookings/${id}/cancel`, { reason });
 export const noShowBooking = (id: number) => api.post<Booking>(`/api/bookings/${id}/no-show`);
 
-// Payments
-export const listPayments = (bookingId: number) => api.get<BookingPayment[]>(`/api/bookings/${bookingId}/payments`);
-export const addPayment = (bookingId: number, data: {
-  monto: number; method: PaymentMethod; referencia?: string | null; pagado_at?: string; notas?: string | null;
-}) => api.post<{ payment: BookingPayment; booking: Booking }>(`/api/bookings/${bookingId}/payments`, data);
+export const moveBooking = (id: number, data: { room_id?: number; fecha_entrada?: string; fecha_salida?: string }) =>
+  api.post<Booking>(`/api/bookings/${id}/move`, data);

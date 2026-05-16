@@ -34,8 +34,9 @@ const router = Router();
 router.use(verifyToken);
 
 router.get('/', asyncHandler(async (req, res) => {
-  const filterType = req.query['type'];
-  const filterActive = req.query['active'];
+  const q = req.query as Record<string, unknown>;
+  const filterType = q['type'];
+  const filterActive = q['active'];
   const where: string[] = [];
   const params: unknown[] = [];
   if (filterType === 'ingreso' || filterType === 'egreso') {

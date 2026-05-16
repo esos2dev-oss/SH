@@ -1,19 +1,22 @@
-// Flow de check-in para una reserva. Tras crear, redirige a detalle de booking.
+// Flow de check-in expres. Si hay saldo pendiente, ofrece cobrar antes con QuickPayment.
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ClipboardText, ArrowLeft, FileImage, FilePdf } from '@phosphor-icons/react';
+import { ClipboardText, ArrowLeft, FileImage, FilePdf, CurrencyCircleDollar } from '@phosphor-icons/react';
 import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
+import { SignaturePad } from '../../../shared/components/ui/signature-pad';
 import { getBooking, type Booking } from '../../bookings/api/bookings.api';
 import { createCheckIn } from '../api/check-ins.api';
+import { useQuickPayment, useOnPaymentSaved } from '../../payments/hooks/QuickPaymentProvider';
 import { formatCurrency, formatDateTime } from '../../../shared/lib/format';
 import { BookingStatusBadge, PaymentStatusBadge } from '../../../shared/components/ui/StatusBadge';
 
 export default function CheckInPage() {
   const { bookingId } = useParams<{ bookingId: string }>();
   const navigate = useNavigate();
+  const quickPay = useQuickPayment();
   const [booking, setBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
   const [observaciones, setObservaciones] = useState('');
@@ -21,13 +24,41 @@ export default function CheckInPage() {
   const [firma, setFirma] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const reload = useCallback(async () => {
+    if (!bookingId) return;
+    try {
+      const b = await getBooking(Number(bookingId));
+      setBooking(b);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Error');
+    }
+  }, [bookingId]);
+
   useEffect(() => {
     if (!bookingId) return;
-    void getBooking(Number(bookingId))
-      .then(setBooking)
-      .catch((err) => toast.error(err instanceof ApiError ? err.message : 'Error'))
-      .finally(() => setLoading(false));
-  }, [bookingId]);
+    setLoading(true);
+    void reload().finally(() => setLoading(false));
+  }, [bookingId, reload]);
+
+  useOnPaymentSaved(useCallback(() => { void reload(); }, [reload]));
+
+  function openQuickPay() {
+    if (!booking) return;
+    quickPay.open({
+      booking_id: booking.id,
+      monto: booking.importe_pendiente,
+      moneda: booking.moneda,
+      preselected: {
+        kind: 'booking',
+        booking_id: booking.id,
+        customer_id: booking.customer.id,
+        label: `Reserva ${booking.codigo} · Hab. ${booking.room.numero} · ${booking.customer.nombre}`,
+        hint: `Pendiente: ${booking.importe_pendiente.toFixed(2)} ${booking.moneda}`,
+        importe_pendiente: booking.importe_pendiente,
+        moneda: booking.moneda,
+      },
+    });
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -74,6 +105,22 @@ export default function CheckInPage() {
           <BookingStatusBadge status={booking.status} />
           <PaymentStatusBadge status={booking.payment_status} />
         </div>
+
+        {booking.importe_pendiente > 0 && (
+          <div className="mt-4 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 p-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-amber-700 dark:text-amber-300">Saldo pendiente: {formatCurrency(booking.importe_pendiente, booking.moneda)}</p>
+              <p className="text-[11px] text-amber-700/80 dark:text-amber-300/80">Recomendado: cobrar antes del check-in.</p>
+            </div>
+            <button
+              type="button"
+              onClick={openQuickPay}
+              className="h-9 px-3 text-xs font-bold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 flex items-center gap-1.5 whitespace-nowrap"
+            >
+              <CurrencyCircleDollar size={14} weight="bold" /> Cobrar ahora
+            </button>
+          </div>
+        )}
       </div>
 
       <form onSubmit={onSubmit} className="bg-card rounded-3xl border border-border shadow-sm p-6 space-y-4">
@@ -96,14 +143,27 @@ export default function CheckInPage() {
         </div>
 
         <div>
-          <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block px-1">Firma (imagen, opcional)</label>
-          <input
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            onChange={(e) => setFirma(e.target.files?.[0] ?? null)}
-            className="block text-sm file:mr-3 file:px-4 file:py-2 file:rounded-lg file:border-0 file:bg-secondary file:text-secondary-foreground file:font-semibold file:cursor-pointer hover:file:bg-secondary/80"
+          <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block px-1">Firma del huesped</label>
+          <SignaturePad
+            onSave={(blob) => {
+              const file = new File([blob], `firma-${booking.codigo}.png`, { type: 'image/png' });
+              setFirma(file);
+            }}
+            saveLabel="Confirmar firma"
           />
-          {firma && <p className="mt-2 text-xs text-muted-foreground">{firma.name}</p>}
+          <p className="mt-1 text-[10px] text-muted-foreground">
+            Firma con el dedo o el mouse en el area de arriba. Si prefieres subir una imagen existente,{' '}
+            <label className="text-primary cursor-pointer hover:underline">
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={(e) => setFirma(e.target.files?.[0] ?? null)}
+              />
+              elige archivo
+            </label>.
+          </p>
+          {firma && <p className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400">✓ Firma adjuntada</p>}
         </div>
 
         <div>

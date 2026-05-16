@@ -5,6 +5,14 @@ import { AuthLayout } from './layouts/AuthLayout';
 import { AppLayout } from './layouts/AppLayout';
 import { ProtectedRoute } from './shared/components/layout/ProtectedRoute';
 import { RoleRoute } from './shared/components/layout/RoleRoute';
+import { useAuth } from './contexts/AuthContext';
+
+// Index redirect: rol limpieza va siempre a /cleaning.
+function IndexRoute({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  if (user?.role === 'limpieza') return <Navigate to="/cleaning" replace />;
+  return <>{children}</>;
+}
 
 // Auth
 const LoginPage = lazy(() => import('./modules/auth/pages/LoginPage'));
@@ -18,21 +26,27 @@ const CustomersPage = lazy(() => import('./modules/customers/pages/CustomersPage
 const CustomerDetailPage = lazy(() => import('./modules/customers/pages/CustomerDetailPage'));
 const BookingsPage = lazy(() => import('./modules/bookings/pages/BookingsPage'));
 const BookingsCalendarPage = lazy(() => import('./modules/bookings/pages/BookingsCalendarPage'));
+const OccupancyTimelinePage = lazy(() => import('./modules/bookings/pages/OccupancyTimelinePage'));
 const BookingDetailPage = lazy(() => import('./modules/bookings/pages/BookingDetailPage'));
 const CheckInPage = lazy(() => import('./modules/check-ins/pages/CheckInPage'));
 const CheckOutPage = lazy(() => import('./modules/check-ins/pages/CheckOutPage'));
+const CleaningPage = lazy(() => import('./modules/cleaning/pages/CleaningPage'));
+
+// Pagos
+const PaymentsPage = lazy(() => import('./modules/payments/pages/PaymentsPage'));
+const BankReconciliationPage = lazy(() => import('./modules/payments/pages/BankReconciliationPage'));
+const CashClosurePage = lazy(() => import('./modules/payments/pages/CashClosurePage'));
+const PaymentsSettingsPage = lazy(() => import('./modules/payments/pages/PaymentsSettingsPage'));
 
 // ERP / Marketing
 const LedgerPage = lazy(() => import('./modules/ledger/pages/LedgerPage'));
 const ReportsPage = lazy(() => import('./modules/reports/pages/ReportsPage'));
-const PromotionsPage = lazy(() => import('./modules/promotions/pages/PromotionsPage'));
-const CampaignsPage = lazy(() => import('./modules/campaigns/pages/CampaignsPage'));
-const EmailTemplatesPage = lazy(() => import('./modules/campaigns/pages/EmailTemplatesPage'));
 
 // Admin / Perfil
 const ProfilePage = lazy(() => import('./modules/profile/pages/ProfilePage'));
 const UsersAdminPage = lazy(() => import('./modules/settings/pages/UsersAdminPage'));
 const AuditLogPage = lazy(() => import('./modules/settings/pages/AuditLogPage'));
+const SettingsHubPage = lazy(() => import('./modules/settings/pages/SettingsHubPage'));
 
 const NotFoundPage = lazy(() => import('./shared/pages/NotFoundPage'));
 
@@ -56,7 +70,7 @@ export const router = createBrowserRouter(
     {
       element: <ProtectedRoute><AppLayout /></ProtectedRoute>,
       children: [
-        { index: true, element: <Suspended><DashboardPage /></Suspended> },
+        { index: true, element: <IndexRoute><Suspended><DashboardPage /></Suspended></IndexRoute> },
 
         // Rooms
         { path: 'rooms', element: <Suspended><RoomsPage /></Suspended> },
@@ -85,6 +99,10 @@ export const router = createBrowserRouter(
           element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion']}><Suspended><BookingsCalendarPage /></Suspended></RoleRoute>,
         },
         {
+          path: 'bookings/timeline',
+          element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion']}><Suspended><OccupancyTimelinePage /></Suspended></RoleRoute>,
+        },
+        {
           path: 'bookings/:id',
           element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'contabilidad']}><Suspended><BookingDetailPage /></Suspended></RoleRoute>,
         },
@@ -98,6 +116,28 @@ export const router = createBrowserRouter(
           path: 'check-ins/:bookingId',
           element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'contabilidad']}><Suspended><CheckOutPage /></Suspended></RoleRoute>,
         },
+        {
+          path: 'cleaning',
+          element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'limpieza']}><Suspended><CleaningPage /></Suspended></RoleRoute>,
+        },
+
+        // Pagos
+        {
+          path: 'payments',
+          element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'contabilidad']}><Suspended><PaymentsPage /></Suspended></RoleRoute>,
+        },
+        {
+          path: 'payments/bank',
+          element: <RoleRoute allowed={['superadmin', 'admin', 'contabilidad']}><Suspended><BankReconciliationPage /></Suspended></RoleRoute>,
+        },
+        {
+          path: 'payments/cash-closure',
+          element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'contabilidad']}><Suspended><CashClosurePage /></Suspended></RoleRoute>,
+        },
+        {
+          path: 'payments/settings',
+          element: <RoleRoute allowed={['superadmin', 'admin']}><Suspended><PaymentsSettingsPage /></Suspended></RoleRoute>,
+        },
 
         // ERP
         {
@@ -109,22 +149,12 @@ export const router = createBrowserRouter(
           element: <RoleRoute allowed={['superadmin', 'admin', 'contabilidad']}><Suspended><ReportsPage /></Suspended></RoleRoute>,
         },
 
-        // Marketing
-        {
-          path: 'promotions',
-          element: <RoleRoute allowed={['superadmin', 'admin']}><Suspended><PromotionsPage /></Suspended></RoleRoute>,
-        },
-        {
-          path: 'campaigns',
-          element: <RoleRoute allowed={['superadmin', 'admin']}><Suspended><CampaignsPage /></Suspended></RoleRoute>,
-        },
-        {
-          path: 'campaigns/templates',
-          element: <RoleRoute allowed={['superadmin', 'admin']}><Suspended><EmailTemplatesPage /></Suspended></RoleRoute>,
-        },
-
         // Profile + admin
         { path: 'profile', element: <Suspended><ProfilePage /></Suspended> },
+        {
+          path: 'settings',
+          element: <RoleRoute allowed={['superadmin', 'admin']}><Suspended><SettingsHubPage /></Suspended></RoleRoute>,
+        },
         {
           path: 'settings/users',
           element: <RoleRoute allowed={['superadmin']}><Suspended><UsersAdminPage /></Suspended></RoleRoute>,

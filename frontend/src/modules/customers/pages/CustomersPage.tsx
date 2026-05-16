@@ -27,9 +27,11 @@ export default function CustomersPage() {
   async function load() {
     setLoading(true);
     try {
-      const params: { search?: string; segment?: typeof segment; limit: number } = { limit: 100 };
+      const params: { search?: string; segment?: 'vip' | 'inactivos' | 'birthdays_month' | 'recientes'; limit: number } = { limit: 100 };
       if (search) params.search = search;
-      if (segment) params.segment = segment;
+      if (segment && (segment as string) !== '') {
+        params.segment = segment as 'vip' | 'inactivos' | 'birthdays_month' | 'recientes';
+      }
       const r = await listCustomers(params);
       setItems(r.data);
       setTotal(r.pagination.total);

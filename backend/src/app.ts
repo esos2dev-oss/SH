@@ -5,12 +5,17 @@ import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import pinoHttp from 'pino-http';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 
 import { env, isProd } from './shared/config/env.js';
 import { logger } from './shared/utils/logger.js';
 import { requestId } from './shared/middleware/request-id.js';
 import { errorHandler, notFoundHandler } from './shared/middleware/error-handler.js';
 import { generalLimiter } from './shared/middleware/rate-limit.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const UPLOADS_DIR = resolve(__dirname, '../uploads');
 
 import authModule from './modules/auth/index.js';
 import usersModule from './modules/users/index.js';
@@ -19,15 +24,16 @@ import roomsModule from './modules/rooms/index.js';
 import customersModule from './modules/customers/index.js';
 import bookingsModule from './modules/bookings/index.js';
 import checkInsModule from './modules/check-ins/index.js';
+import paymentsModule from './modules/payments/index.js';
 import ledgerCategoriesModule from './modules/ledger-categories/index.js';
 import ledgerModule from './modules/ledger/index.js';
 import receiptsModule from './modules/receipts/index.js';
 import reportsModule from './modules/reports/index.js';
-import promotionsModule from './modules/promotions/index.js';
-import emailTemplatesModule from './modules/email-templates/index.js';
-import emailCampaignsModule from './modules/email-campaigns/index.js';
 import auditLogModule from './modules/audit-log/index.js';
 import settingsModule from './modules/settings/index.js';
+import dashboardModule from './modules/dashboard/index.js';
+import searchModule from './modules/search/index.js';
+import notificationsModule from './modules/notifications/index.js';
 
 interface ModuleDefinition {
   prefix: string;
@@ -42,15 +48,16 @@ const modules: ModuleDefinition[] = [
   customersModule,
   bookingsModule,
   checkInsModule,
+  paymentsModule,
   ledgerCategoriesModule,
   ledgerModule,
   receiptsModule,
   reportsModule,
-  promotionsModule,
-  emailTemplatesModule,
-  emailCampaignsModule,
   auditLogModule,
   settingsModule,
+  dashboardModule,
+  searchModule,
+  notificationsModule,
 ];
 
 export function createApp(): Application {
@@ -85,6 +92,9 @@ export function createApp(): Application {
       autoLogging: { ignore: (req) => req.url === '/api/health' },
     }),
   );
+
+  // Static uploads (receipts locales cuando R2 no esta configurado)
+  app.use('/uploads', express.static(UPLOADS_DIR, { maxAge: '7d', index: false, dotfiles: 'ignore' }));
 
   // Rate limit general
   app.use('/api/', generalLimiter);

@@ -1,49 +1,76 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ArrowLeft, ClipboardText, X, CurrencyDollar, CheckCircle, XCircle } from '@phosphor-icons/react';
+import { ArrowLeft, ClipboardText, CurrencyDollar, CheckCircle, XCircle, Check, X } from '@phosphor-icons/react';
 
 import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { BookingStatusBadge, PaymentStatusBadge } from '../../../shared/components/ui/StatusBadge';
 import {
-  getBooking, listPayments, addPayment, confirmBooking, cancelBooking, noShowBooking,
-  type Booking, type BookingPayment, type PaymentMethod,
+  getBooking, confirmBooking, cancelBooking, noShowBooking,
+  type Booking,
 } from '../api/bookings.api';
+import {
+  listPayments, confirmPayment, rejectPayment,
+  type PaymentPublic,
+} from '../../payments/api/payments.api';
+import { useQuickPayment, useOnPaymentSaved } from '../../payments/hooks/QuickPaymentProvider';
+import { METHOD_LABELS, STATUS_COLORS, STATUS_LABELS } from '../../payments/lib/labels';
 import { formatCurrency, formatDateTime } from '../../../shared/lib/format';
+import { cn } from '../../../shared/lib/cn';
+import { useDialog } from '../../../shared/components/ui/dialog-system';
 
 export default function BookingDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const quickPay = useQuickPayment();
+  const dialog = useDialog();
   const [booking, setBooking] = useState<Booking | null>(null);
-  const [payments, setPayments] = useState<BookingPayment[]>([]);
+  const [payments, setPayments] = useState<PaymentPublic[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showPay, setShowPay] = useState(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     try {
-      const [b, ps] = await Promise.all([getBooking(Number(id)), listPayments(Number(id))]);
+      const bookingId = Number(id);
+      const [b, ps] = await Promise.all([
+        getBooking(bookingId),
+        listPayments({ booking_id: bookingId, limit: 50 }),
+      ]);
       setBooking(b);
-      setPayments(ps);
+      setPayments(ps.data);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Error');
     } finally { setLoading(false); }
-  }
+  }, [id]);
 
-  useEffect(() => { void load(); }, [id]);
+  useEffect(() => { void load(); }, [load]);
+  useOnPaymentSaved(useCallback(() => { void load(); }, [load]));
 
   async function transition(action: 'confirm' | 'cancel' | 'no-show') {
     if (!booking) return;
     try {
       if (action === 'confirm') await confirmBooking(booking.id);
       else if (action === 'cancel') {
-        const reason = prompt('Motivo de la cancelacion?');
+        const reason = await dialog.prompt({
+          title: 'Cancelar reserva?',
+          message: 'Indica el motivo de la cancelacion. Quedara registrado en el historial.',
+          placeholder: 'Ej: cliente pidio cancelacion',
+          required: true,
+          multiline: true,
+          maxLength: 500,
+          confirmLabel: 'Cancelar reserva',
+        });
         if (!reason) return;
         await cancelBooking(booking.id, reason);
       } else if (action === 'no-show') {
-        if (!confirm('Marcar como no-show?')) return;
+        if (!(await dialog.confirm({
+          title: 'Marcar como no-show?',
+          message: 'El huesped no se presento. La reserva quedara como no-show y la habitacion liberada.',
+          danger: true,
+          confirmLabel: 'Marcar no-show',
+        }))) return;
         await noShowBooking(booking.id);
       }
       toast.success('Estado actualizado');
@@ -51,6 +78,53 @@ export default function BookingDetailPage() {
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Error');
     }
+  }
+
+  async function handleConfirmPayment(p: PaymentPublic) {
+    try {
+      await confirmPayment(p.id);
+      toast.success('Pago confirmado');
+      await load();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Error');
+    }
+  }
+
+  async function handleRejectPayment(p: PaymentPublic) {
+    const reason = await dialog.prompt({
+      title: 'Rechazar pago',
+      message: 'Indica el motivo del rechazo.',
+      placeholder: 'Ej: referencia no encontrada',
+      required: true,
+      multiline: true,
+      maxLength: 500,
+    });
+    if (!reason) return;
+    try {
+      await rejectPayment(p.id, reason);
+      toast.success('Pago rechazado');
+      await load();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Error');
+    }
+  }
+
+  function openQuickPay() {
+    if (!booking) return;
+    quickPay.open({
+      booking_id: booking.id,
+      monto: booking.importe_pendiente,
+      moneda: booking.moneda,
+      preselected: {
+        kind: 'booking',
+        booking_id: booking.id,
+        customer_id: booking.customer.id,
+        label: `Reserva ${booking.codigo} · Hab. ${booking.room.numero} · ${booking.customer.nombre}`,
+        hint: `Pendiente: ${booking.importe_pendiente.toFixed(2)} ${booking.moneda}`,
+        importe_pendiente: booking.importe_pendiente,
+        moneda: booking.moneda,
+      },
+    });
   }
 
   if (loading) return <div className="text-center py-12 text-sm text-muted-foreground">Cargando...</div>;
@@ -123,7 +197,7 @@ export default function BookingDetailPage() {
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold">Pagos</h3>
           {booking.importe_pendiente > 0 && booking.status !== 'cancelada' && (
-            <button type="button" onClick={() => setShowPay(true)} className="h-9 px-3 text-xs font-semibold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 shadow-sm shadow-primary/20 flex items-center gap-1.5"><CurrencyDollar size={12} weight="bold" /> Registrar pago</button>
+            <button type="button" onClick={openQuickPay} className="h-9 px-3 text-xs font-semibold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 shadow-sm shadow-primary/20 flex items-center gap-1.5"><CurrencyDollar size={12} weight="bold" /> Registrar pago <span className="ml-1 inline-flex items-center justify-center bg-primary-foreground/20 rounded px-1 text-[9px] font-mono">P</span></button>
           )}
         </div>
         {payments.length === 0 ? (
@@ -131,37 +205,28 @@ export default function BookingDetailPage() {
         ) : (
           <div className="space-y-2">
             {payments.map((p) => (
-              <div key={p.id} className="flex items-center justify-between p-3 rounded-xl border border-border">
-                <div>
-                  <p className="font-semibold tabular-nums">{formatCurrency(Number(p.monto), p.moneda)}</p>
+              <div key={p.id} className="flex items-center justify-between gap-3 p-3 rounded-xl border border-border">
+                <div className="min-w-0">
+                  <p className="font-semibold tabular-nums">{formatCurrency(Number(p.monto), p.moneda)}{p.monto_base !== null && p.moneda !== 'USD' ? <span className="ml-2 text-xs text-muted-foreground">({p.monto_base.toFixed(2)} USD)</span> : null}</p>
                   <p className="text-[11px] text-muted-foreground uppercase tracking-wider">
-                    {p.method}{p.referencia ? ` · ${p.referencia}` : ''}
+                    {METHOD_LABELS[p.method]}{p.referencia ? ` · ref ${p.referencia}` : ''}
                   </p>
                 </div>
-                <p className="text-xs text-muted-foreground">{formatDateTime(p.pagado_at)}</p>
+                <div className="flex items-center gap-2">
+                  <span className={cn('text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded', STATUS_COLORS[p.status])}>{STATUS_LABELS[p.status]}</span>
+                  {p.status === 'pending_confirmation' && (
+                    <>
+                      <button type="button" onClick={() => void handleConfirmPayment(p)} className="p-1.5 rounded hover:bg-emerald-50 text-emerald-600 dark:hover:bg-emerald-950/30" title="Confirmar"><Check size={14} weight="bold" /></button>
+                      <button type="button" onClick={() => void handleRejectPayment(p)} className="p-1.5 rounded hover:bg-red-50 text-red-600 dark:hover:bg-red-950/30" title="Rechazar"><X size={14} weight="bold" /></button>
+                    </>
+                  )}
+                  <p className="text-xs text-muted-foreground ml-2 whitespace-nowrap">{formatDateTime(p.pagado_at)}</p>
+                </div>
               </div>
             ))}
           </div>
         )}
       </div>
-
-      {showPay && booking && (
-        <PaymentDialog
-          maxMonto={booking.importe_pendiente}
-          moneda={booking.moneda}
-          onClose={() => setShowPay(false)}
-          onSaved={async (data) => {
-            try {
-              await addPayment(booking.id, data);
-              toast.success('Pago registrado');
-              setShowPay(false);
-              await load();
-            } catch (err) {
-              toast.error(err instanceof ApiError ? err.message : 'Error');
-            }
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -171,70 +236,6 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
     <div>
       <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className="mt-0.5">{value}</p>
-    </div>
-  );
-}
-
-function PaymentDialog({ maxMonto, moneda, onClose, onSaved }: {
-  maxMonto: number;
-  moneda: string;
-  onClose: () => void;
-  onSaved: (data: { monto: number; method: PaymentMethod; referencia?: string | null; notas?: string | null }) => Promise<void>;
-}) {
-  const [monto, setMonto] = useState(maxMonto);
-  const [method, setMethod] = useState<PaymentMethod>('efectivo');
-  const [referencia, setReferencia] = useState('');
-  const [notas, setNotas] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (monto <= 0 || monto > maxMonto + 0.01) {
-      toast.error(`Monto invalido. Maximo: ${maxMonto}`);
-      return;
-    }
-    setSubmitting(true);
-    await onSaved({ monto, method, referencia: referencia || null, notas: notas || null });
-    setSubmitting(false);
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-card rounded-3xl border border-border shadow-xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold">Registrar pago</h2>
-          <button type="button" onClick={onClose} className="p-1 rounded hover:bg-muted"><X size={18} /></button>
-        </div>
-        <form onSubmit={onSubmit} className="space-y-4">
-          <div>
-            <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block px-1">Monto ({moneda})</label>
-            <input type="number" step="0.01" max={maxMonto} value={monto} onChange={(e) => setMonto(Number(e.target.value))} className="w-full h-11 px-4 rounded-xl border border-border bg-muted/50 text-sm outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 focus:bg-card" />
-            <p className="text-[11px] text-muted-foreground mt-1">Maximo pendiente: {formatCurrency(maxMonto, moneda)}</p>
-          </div>
-          <div>
-            <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block px-1">Metodo</label>
-            <select value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod)} className="w-full h-11 px-4 rounded-xl border border-border bg-muted/50 text-sm cursor-pointer outline-none focus:border-primary focus:bg-card">
-              <option value="efectivo">Efectivo</option>
-              <option value="tarjeta">Tarjeta</option>
-              <option value="transferencia">Transferencia</option>
-              <option value="paypal">PayPal</option>
-              <option value="otro">Otro</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block px-1">Referencia</label>
-            <input value={referencia} onChange={(e) => setReferencia(e.target.value)} className="w-full h-11 px-4 rounded-xl border border-border bg-muted/50 text-sm outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 focus:bg-card" placeholder="TXN12345 o comprobante #..." />
-          </div>
-          <div>
-            <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block px-1">Notas</label>
-            <textarea value={notas} onChange={(e) => setNotas(e.target.value)} rows={2} className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 text-sm outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 focus:bg-card" />
-          </div>
-          <div className="flex gap-2 pt-2">
-            <button type="submit" disabled={submitting} className="h-11 px-6 bg-primary text-primary-foreground rounded-xl font-semibold text-sm hover:bg-primary/90 shadow-lg shadow-primary/20 disabled:opacity-60">{submitting ? 'Guardando...' : 'Confirmar pago'}</button>
-            <button type="button" onClick={onClose} className="h-11 px-6 border border-border bg-card rounded-xl font-semibold text-sm hover:bg-muted">Cancelar</button>
-          </div>
-        </form>
-      </div>
     </div>
   );
 }
