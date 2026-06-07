@@ -1,82 +1,57 @@
-// Cliente HTTP para conciliacion bancaria.
+// Conciliacion bancaria — version basica contra Supabase.
+// La conciliacion automatica (parser de PDF/CSV + matching) queda pendiente
+// como edge function. Por ahora la UI puede listar statements/movements y
+// hacer matching manual.
 
-import { api, getAccessToken } from '../../../shared/api/client';
+import { supabase } from '../../../shared/lib/supabase';
 
 export type BankKey = 'banesco' | 'mercantil' | 'venezuela' | 'provincial' | 'generic';
 
 export interface BankStatement {
-  id: number;
-  banco: string;
-  cuenta: string | null;
-  fecha_desde: string;
-  fecha_hasta: string;
-  moneda: string;
-  original_name: string;
-  total_movs: number;
-  matched_movs: number;
-  uploaded_by: number;
-  created_at: string;
+  id: number; banco: string; cuenta: string | null;
+  fecha_desde: string; fecha_hasta: string; moneda: string;
+  original_name: string; total_movs: number; matched_movs: number;
+  uploaded_by: string; created_at: string;
 }
 
 export interface BankMovement {
-  id: number;
-  statement_id: number;
-  fecha: string;
-  referencia: string | null;
-  descripcion: string | null;
-  monto: number;
-  tipo: 'C' | 'D';
-  moneda: string;
-  matched_payment_id: number | null;
-  raw_line: string | null;
+  id: number; statement_id: number; fecha: string;
+  referencia: string | null; descripcion: string | null;
+  monto: number; tipo: 'C' | 'D'; moneda: string;
+  matched_payment_id: number | null; raw_line: string | null;
 }
 
-export interface UploadResult {
-  statement: BankStatement;
-  matched: number;
-  total: number;
-  warnings: string[];
+export interface UploadResult { statement: BankStatement; matched: number; total: number; warnings: string[]; }
+export interface MatchSuggestion { payment_id: number; score: number; reason: string; }
+
+export async function uploadStatement(_banco: BankKey, _file: File, _opts: { cuenta?: string; moneda?: string } = {}): Promise<UploadResult> {
+  throw new Error('La importacion de extractos bancarios aun no esta disponible en Supabase puro. Pendiente como edge function.');
 }
 
-export interface MatchSuggestion {
-  payment_id: number;
-  score: number;
-  reason: string;
+export async function listStatements(): Promise<BankStatement[]> {
+  const { data, error } = await supabase.from('bank_statements').select('*').order('fecha_desde', { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as BankStatement[];
 }
 
-const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3002';
-
-export async function uploadStatement(banco: BankKey, file: File, opts: { cuenta?: string; moneda?: string } = {}): Promise<UploadResult> {
-  const fd = new FormData();
-  fd.append('banco', banco);
-  fd.append('moneda', opts.moneda ?? 'VES');
-  if (opts.cuenta) fd.append('cuenta', opts.cuenta);
-  fd.append('file', file);
-  // Llamada multipart directa via fetch (api.post no soporta FormData con body raw).
-  const token = getAccessToken();
-  const res = await fetch(`${API_BASE}/api/payments/bank-statements/upload`, {
-    method: 'POST',
-    body: fd,
-    credentials: 'include',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  const json = await res.json();
-  if (!res.ok || !json.success) {
-    throw new Error(json.error || `HTTP ${res.status}`);
-  }
-  return json.data as UploadResult;
+export async function listMovements(statementId: number, onlyUnmatched = false): Promise<BankMovement[]> {
+  let q = supabase.from('bank_statement_movements').select('*').eq('statement_id', statementId).order('fecha');
+  if (onlyUnmatched) q = q.is('matched_payment_id', null);
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  return (data ?? []) as BankMovement[];
 }
 
-export const listStatements = () => api.get<BankStatement[]>('/api/payments/bank-statements');
+export async function autoConfirm(_statementId: number): Promise<{ confirmed: number }> {
+  return { confirmed: 0 };
+}
 
-export const listMovements = (statementId: number, onlyUnmatched = false) =>
-  api.get<BankMovement[]>(`/api/payments/bank-statements/${statementId}/movements`, { query: onlyUnmatched ? { unmatched: 'true' } : {} });
+export async function getSuggestions(_movementId: number): Promise<MatchSuggestion[]> {
+  return [];
+}
 
-export const autoConfirm = (statementId: number) =>
-  api.post<{ confirmed: number }>(`/api/payments/bank-statements/${statementId}/auto-confirm`);
-
-export const getSuggestions = (movementId: number) =>
-  api.get<MatchSuggestion[]>(`/api/payments/bank-movements/${movementId}/suggestions`);
-
-export const matchMovement = (movementId: number, paymentId: number | null) =>
-  api.post<{ ok: true }>(`/api/payments/bank-movements/${movementId}/match`, { payment_id: paymentId });
+export async function matchMovement(movementId: number, paymentId: number | null): Promise<{ ok: true }> {
+  const { error } = await supabase.from('bank_statement_movements').update({ matched_payment_id: paymentId }).eq('id', movementId);
+  if (error) throw new Error(error.message);
+  return { ok: true };
+}

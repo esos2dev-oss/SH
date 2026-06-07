@@ -11,7 +11,7 @@ import {
   XCircle,
 } from '@phosphor-icons/react';
 
-import { api, ApiError } from '../../../shared/api/client';
+import { supabase, invokeFunction } from '../../../shared/lib/supabase';
 import type { Role } from '../../../contexts/AuthContext';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { EmptyState } from '../../../shared/components/ui/EmptyState';
@@ -19,7 +19,7 @@ import { formatDateTime } from '../../../shared/lib/format';
 import { useDialog } from '../../../shared/components/ui/dialog-system';
 
 interface UserPublic {
-  id: number;
+  id: string;
   nombre: string;
   email: string;
   role: Role;
@@ -54,10 +54,15 @@ export default function UsersAdminPage() {
   async function loadUsers() {
     setLoading(true);
     try {
-      const data = await api.get<UserPublic[]>('/api/users', { query: { limit: 100 } });
-      setUsers(data);
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, nombre, email, role, active, last_login_at, created_at')
+        .order('nombre')
+        .limit(100);
+      if (error) throw new Error(error.message);
+      setUsers((data ?? []) as UserPublic[]);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error cargando usuarios');
+      toast.error(err instanceof Error ? err.message : 'Error cargando usuarios');
     } finally {
       setLoading(false);
     }
@@ -76,7 +81,7 @@ export default function UsersAdminPage() {
     }
     setCreating(true);
     try {
-      await api.post('/api/users', { nombre: nombre.trim(), email: email.trim(), role });
+      await invokeFunction('admin-create-user', { nombre: nombre.trim(), email: email.trim(), role } as Record<string, unknown>);
       toast.success('Usuario creado. Invitacion enviada por email.');
       setNombre('');
       setEmail('');
@@ -84,29 +89,25 @@ export default function UsersAdminPage() {
       setShowForm(false);
       await loadUsers();
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : 'No se pudo crear usuario');
+      setFormError(err instanceof Error ? err.message : 'No se pudo crear usuario');
     } finally {
       setCreating(false);
     }
   }
 
-  async function onResendInvite(id: number) {
-    try {
-      await api.post(`/api/users/${id}/resend-invite`);
-      toast.success('Invitacion reenviada');
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'No se pudo reenviar');
-    }
+  async function onResendInvite(_id: string) {
+    toast.info('Reenvio de invitacion: usa el dashboard de Supabase mientras no implementemos la edge function.');
   }
 
   async function onToggleActive(u: UserPublic) {
     if (!u.active) {
       try {
-        await api.patch(`/api/users/${u.id}`, { active: true });
+        const { error } = await supabase.from('profiles').update({ active: true }).eq('id', u.id);
+        if (error) throw new Error(error.message);
         toast.success('Usuario reactivado');
         await loadUsers();
       } catch (err) {
-        toast.error(err instanceof ApiError ? err.message : 'Error');
+        toast.error(err instanceof Error ? err.message : 'Error');
       }
       return;
     }
@@ -117,11 +118,12 @@ export default function UsersAdminPage() {
       confirmLabel: 'Desactivar',
     }))) return;
     try {
-      await api.delete(`/api/users/${u.id}`);
+      const { error } = await supabase.from('profiles').update({ active: false }).eq('id', u.id);
+      if (error) throw new Error(error.message);
       toast.success('Usuario desactivado');
       await loadUsers();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(err instanceof Error ? err.message : 'Error');
     }
   }
 

@@ -9,7 +9,6 @@ import {
   ArrowRight, Lightning, Warning,
 } from '@phosphor-icons/react';
 import { useAuth } from '../../../contexts/AuthContext';
-import { ApiError } from '../../../shared/api/client';
 import { cn } from '../../../shared/lib/cn';
 
 const DEMO_USERS: Array<{ email: string; role: string; description: string; color: string }> = [
@@ -46,7 +45,7 @@ export default function LoginPage() {
       const from = location.state?.from?.pathname ?? '/';
       navigate(from, { replace: true });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Credenciales incorrectas');
+      setError(err instanceof Error ? err.message : 'Credenciales incorrectas');
     } finally { setLoading(false); }
   }
 
@@ -59,7 +58,7 @@ export default function LoginPage() {
       await login(demoEmail, DEMO_PASSWORD);
       navigate('/', { replace: true });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo iniciar sesion demo');
+      setError(err instanceof Error ? err.message : 'No se pudo iniciar sesion demo');
     } finally { setLoading(false); }
   }
 

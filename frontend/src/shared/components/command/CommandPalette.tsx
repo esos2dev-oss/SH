@@ -7,7 +7,7 @@ import {
   MagnifyingGlass, Bed, CalendarBlank, UserCircle, CurrencyCircleDollar,
   Plus, ClipboardText, ArrowRight,
 } from '@phosphor-icons/react';
-import { api } from '../../api/client';
+import { supabase } from '../../lib/supabase';
 import { cn } from '../../lib/cn';
 import { useQuickPayment } from '../../../modules/payments/hooks/QuickPaymentProvider';
 
@@ -66,8 +66,25 @@ export function CommandPalette({ open, onClose }: Props) {
     setLoading(true);
     const t = setTimeout(async () => {
       try {
-        const r = await api.get<SearchHit[]>('/api/search', { query: { q: trimmed, limit: 20 } });
-        if (!cancel) setHits(r);
+        const like = `%${trimmed}%`;
+        const [rooms, bookings, customers] = await Promise.all([
+          supabase.from('rooms').select('id, numero, planta, status').ilike('numero', like).limit(5),
+          supabase.from('bookings_with_relations').select('id, codigo, customer, room, status').ilike('codigo', like).limit(5),
+          supabase.from('customers').select('id, nombres, apellidos, doc_numero, telefono')
+            .or(`nombres.ilike.${like},apellidos.ilike.${like},doc_numero.ilike.${like},telefono.ilike.${like}`)
+            .limit(5),
+        ]);
+        const hits: SearchHit[] = [];
+        for (const r of (rooms.data ?? []) as Array<{ id: number; numero: string; planta: string | null; status: string }>) {
+          hits.push({ kind: 'room', id: r.id, label: `Habitacion ${r.numero}`, hint: `${r.planta ? 'Planta ' + r.planta + ' · ' : ''}${r.status}`, url: '/rooms' });
+        }
+        for (const b of (bookings.data ?? []) as Array<{ id: number; codigo: string; customer: { nombre: string }; room: { numero: string }; status: string }>) {
+          hits.push({ kind: 'booking', id: b.id, label: b.codigo, hint: `${b.customer.nombre} · Hab ${b.room.numero} · ${b.status}`, url: `/bookings/${b.id}` });
+        }
+        for (const c of (customers.data ?? []) as Array<{ id: number; nombres: string; apellidos: string; doc_numero: string; telefono: string | null }>) {
+          hits.push({ kind: 'customer', id: c.id, label: `${c.nombres} ${c.apellidos}`, hint: `${c.doc_numero}${c.telefono ? ' · ' + c.telefono : ''}`, url: `/customers/${c.id}` });
+        }
+        if (!cancel) setHits(hits);
       } catch {
         if (!cancel) setHits([]);
       } finally {

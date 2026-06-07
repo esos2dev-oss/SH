@@ -1,33 +1,24 @@
-import { api } from '../../../shared/api/client';
+import { supabase, invokeFunction } from '../../../shared/lib/supabase';
+import type { PaginatedResponse } from '../../../shared/api/client';
 
 export type LedgerType = 'ingreso' | 'egreso';
 export type LedgerStatus = 'registrado' | 'conciliado' | 'anulado';
 export type PaymentMethod = 'efectivo' | 'tarjeta' | 'transferencia' | 'paypal' | 'otro';
 
 export interface LedgerCategory {
-  id: number;
-  nombre: string;
-  slug: string;
-  type: LedgerType;
-  active: boolean;
-  created_at: string;
+  id: number; nombre: string; slug: string; type: LedgerType; active: boolean; created_at: string;
 }
 
 export interface LedgerEntry {
-  id: number;
-  codigo: string;
-  type: LedgerType;
+  id: number; codigo: string; type: LedgerType;
   category: { id: number; nombre: string; slug: string };
-  fecha: string;
-  descripcion: string;
-  monto: number;
-  moneda: string;
+  fecha: string; descripcion: string; monto: number; moneda: string;
   method: PaymentMethod | null;
   booking: { id: number; codigo: string } | null;
   customer: { id: number; nombre: string } | null;
   reverses_id: number | null;
   status: LedgerStatus;
-  registered_by: number;
+  registered_by: string;
   receipts_count: number;
   created_at: string;
 }
@@ -38,51 +29,143 @@ export interface LedgerSummary {
   series: Array<{ period: string; ingresos: number; egresos: number }>;
 }
 
-// Categories
-export const listCategories = (params?: { type?: LedgerType; active?: boolean }) =>
-  api.get<LedgerCategory[]>('/api/ledger-categories', { query: params as Record<string, string | number | boolean | undefined> | undefined });
-export const createCategory = (data: { nombre: string; slug: string; type: LedgerType }) =>
-  api.post<LedgerCategory>('/api/ledger-categories', data);
-export const updateCategory = (id: number, data: Partial<LedgerCategory>) =>
-  api.patch<LedgerCategory>(`/api/ledger-categories/${id}`, data);
-export const deleteCategory = (id: number) => api.delete(`/api/ledger-categories/${id}`);
+export async function listCategories(params?: { type?: LedgerType; active?: boolean }): Promise<LedgerCategory[]> {
+  let q = supabase.from('ledger_categories').select('*').order('nombre');
+  if (params?.type) q = q.eq('type', params.type);
+  if (params?.active !== undefined) q = q.eq('active', params.active);
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  return (data ?? []) as LedgerCategory[];
+}
 
-// Ledger
-export const listLedger = (params?: {
+export async function createCategory(data: { nombre: string; slug: string; type: LedgerType }): Promise<LedgerCategory> {
+  const { data: row, error } = await supabase.from('ledger_categories').insert(data).select('*').single();
+  if (error) throw new Error(error.message);
+  return row as LedgerCategory;
+}
+
+export async function updateCategory(id: number, data: Partial<LedgerCategory>): Promise<LedgerCategory> {
+  const allowed = ['nombre','slug','type','active'] as const;
+  const patch: Record<string, unknown> = {};
+  for (const k of allowed) if ((data as Record<string, unknown>)[k] !== undefined) patch[k] = (data as Record<string, unknown>)[k];
+  const { data: row, error } = await supabase.from('ledger_categories').update(patch).eq('id', id).select('*').single();
+  if (error) throw new Error(error.message);
+  return row as LedgerCategory;
+}
+
+export async function deleteCategory(id: number): Promise<void> {
+  const { error } = await supabase.from('ledger_categories').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+export async function listLedger(params?: {
   type?: LedgerType; category_id?: number; dateFrom?: string; dateTo?: string;
   status?: LedgerStatus; booking_id?: number; customer_id?: number; search?: string;
   page?: number; limit?: number;
-}) => api.getPaginated<LedgerEntry[]>('/api/ledger', { query: params as Record<string, string | number | boolean | undefined> | undefined });
+}): Promise<PaginatedResponse<LedgerEntry[]>> {
+  const page = params?.page ?? 1;
+  const limit = params?.limit ?? 20;
+  const from = (page - 1) * limit;
+  const to = from + limit - 1;
+  let q = supabase.from('ledger_entries_with_relations').select('*', { count: 'exact' }).order('fecha', { ascending: false }).range(from, to);
+  if (params?.type) q = q.eq('type', params.type);
+  if (params?.status) q = q.eq('status', params.status);
+  if (params?.dateFrom) q = q.gte('fecha', params.dateFrom);
+  if (params?.dateTo) q = q.lte('fecha', params.dateTo);
+  if (params?.search) q = q.ilike('descripcion', `%${params.search}%`);
+  const { data, error, count } = await q;
+  if (error) throw new Error(error.message);
+  return {
+    data: (data ?? []) as LedgerEntry[],
+    pagination: { total: count ?? 0, page, limit, totalPages: Math.max(1, Math.ceil((count ?? 0) / limit)) },
+  };
+}
 
-export const getLedger = (id: number) => api.get<LedgerEntry>(`/api/ledger/${id}`);
-export const ledgerSummary = (params: { dateFrom: string; dateTo: string; groupBy?: 'day' | 'week' | 'month' }) =>
-  api.get<LedgerSummary>('/api/ledger/summary', { query: params as Record<string, string | number | boolean | undefined> });
-export const createLedger = (data: {
+export async function getLedger(id: number): Promise<LedgerEntry> {
+  const { data, error } = await supabase.from('ledger_entries_with_relations').select('*').eq('id', id).single();
+  if (error) throw new Error(error.message);
+  return data as LedgerEntry;
+}
+
+export async function ledgerSummary(params: { dateFrom: string; dateTo: string; groupBy?: 'day' | 'week' | 'month' }): Promise<LedgerSummary> {
+  const { data, error } = await supabase.rpc('ledger_summary', {
+    p_from: params.dateFrom, p_to: params.dateTo, p_group: params.groupBy ?? 'day',
+  });
+  if (error) throw new Error(error.message);
+  return data as LedgerSummary;
+}
+
+export async function createLedger(data: {
   type: LedgerType; category_id: number; fecha: string; descripcion: string;
   monto: number; moneda?: string; method?: PaymentMethod | null;
   booking_id?: number | null; customer_id?: number | null;
-}) => api.post<LedgerEntry>('/api/ledger', data);
-export const conciliarLedger = (id: number) => api.post<LedgerEntry>(`/api/ledger/${id}/conciliar`);
-
-// Receipts
-export interface Receipt {
-  id: number;
-  ledger_entry_id: number;
-  kind: 'imagen' | 'pdf';
-  mime_type: string;
-  size_bytes: number;
-  original_name: string;
-  uploaded_by?: number;
-  created_at: string;
+}): Promise<LedgerEntry> {
+  const { data: codigo, error: cErr } = await supabase.rpc('next_code', { p_prefix: 'LG' });
+  if (cErr) throw new Error(cErr.message);
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('No autenticado');
+  const { data: row, error } = await supabase.from('ledger_entries').insert({
+    codigo,
+    type: data.type,
+    category_id: data.category_id,
+    fecha: data.fecha,
+    descripcion: data.descripcion,
+    monto: data.monto,
+    moneda: data.moneda ?? 'USD',
+    method: data.method ?? null,
+    booking_id: data.booking_id ?? null,
+    customer_id: data.customer_id ?? null,
+    registered_by: user.id,
+  }).select('id').single();
+  if (error) throw new Error(error.message);
+  return getLedger((row as { id: number }).id);
 }
-export const listReceipts = (ledgerEntryId: number) =>
-  api.get<Receipt[]>(`/api/receipts/by-entry/${ledgerEntryId}`);
-export const receiptUrl = (id: number) => api.get<{ url: string; expires_in: number }>(`/api/receipts/${id}/url`);
-export const deleteReceipt = (id: number) => api.delete(`/api/receipts/${id}`);
+
+export async function conciliarLedger(id: number): Promise<LedgerEntry> {
+  await invokeFunction('ledger-reverse', { entry_id: id } as Record<string, unknown>);
+  return getLedger(id);
+}
+
+export interface Receipt {
+  id: number; ledger_entry_id: number; kind: 'imagen' | 'pdf'; mime_type: string;
+  size_bytes: number; original_name: string; uploaded_by?: string; created_at: string;
+}
+
+export async function listReceipts(ledgerEntryId: number): Promise<Receipt[]> {
+  const { data, error } = await supabase.from('receipts').select('*').eq('ledger_entry_id', ledgerEntryId).eq('active', true);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Receipt[];
+}
+
+export async function receiptUrl(id: number): Promise<{ url: string; expires_in: number }> {
+  const { data: r, error: e1 } = await supabase.from('receipts').select('storage_path').eq('id', id).single();
+  if (e1) throw new Error(e1.message);
+  const { data, error } = await supabase.storage.from('receipts').createSignedUrl((r as { storage_path: string }).storage_path, 60 * 15);
+  if (error) throw new Error(error.message);
+  return { url: data.signedUrl, expires_in: 60 * 15 };
+}
+
+export async function deleteReceipt(id: number): Promise<void> {
+  const { error } = await supabase.from('receipts').update({ active: false }).eq('id', id);
+  if (error) throw new Error(error.message);
+}
 
 export async function uploadReceipt(ledgerEntryId: number, file: File): Promise<Receipt> {
-  const fd = new FormData();
-  fd.append('ledger_entry_id', String(ledgerEntryId));
-  fd.append('file', file);
-  return api.post<Receipt>('/api/receipts', fd, { isFormData: true });
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('No autenticado');
+  const path = `entries/${ledgerEntryId}/${Date.now()}-${file.name}`;
+  const { error: upErr } = await supabase.storage.from('receipts').upload(path, file, { contentType: file.type, upsert: false });
+  if (upErr) throw new Error(upErr.message);
+  const kind: 'imagen' | 'pdf' = file.type === 'application/pdf' ? 'pdf' : 'imagen';
+  const { data, error } = await supabase.from('receipts').insert({
+    ledger_entry_id: ledgerEntryId,
+    storage_path: path,
+    kind,
+    mime_type: file.type,
+    size_bytes: file.size,
+    original_name: file.name,
+    uploaded_by: user.id,
+  }).select('*').single();
+  if (error) throw new Error(error.message);
+  return data as Receipt;
 }

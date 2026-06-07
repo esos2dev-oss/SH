@@ -1,8 +1,8 @@
-import { useState, useMemo, type FormEvent } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useState, useMemo, useEffect, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Bed, Eye, EyeSlash, Check, X } from '@phosphor-icons/react';
 import { setPassword as setPasswordApi } from '../api/auth.api';
-import { ApiError } from '../../../shared/api/client';
+import { supabase } from '../../../shared/lib/supabase';
 
 const RULES = [
   { id: 'length', label: 'Minimo 8 caracteres', test: (v: string) => v.length >= 8 },
@@ -13,9 +13,11 @@ const RULES = [
 ];
 
 export default function SetPasswordPage() {
-  const { token } = useParams<{ token: string }>();
   const navigate = useNavigate();
 
+  // Supabase detecta el token de invitacion en la URL (detectSessionInUrl=true)
+  // y crea la sesion automaticamente. Validamos que haya sesion antes de permitir set.
+  const [hasSession, setHasSession] = useState<boolean | null>(null);
   const [password, setPwd] = useState('');
   const [confirm, setConfirm] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -23,6 +25,10 @@ export default function SetPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setHasSession(!!data.session));
+  }, []);
 
   const checks = useMemo(
     () => RULES.map((r) => ({ ...r, passed: r.test(password, confirm) })),
@@ -32,15 +38,16 @@ export default function SetPasswordPage() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!allPassed || !token) return;
+    if (!allPassed || !hasSession) return;
     setLoading(true);
     setError(null);
     try {
-      await setPasswordApi(token, password);
+      await setPasswordApi(password);
       setSuccess(true);
+      await supabase.auth.signOut();
       setTimeout(() => navigate('/login', { replace: true }), 1500);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Error al guardar la contrasena');
+      setError(err instanceof Error ? err.message : 'Error al guardar la contrasena');
     } finally {
       setLoading(false);
     }
@@ -153,7 +160,7 @@ export default function SetPasswordPage() {
 
               <button
                 type="submit"
-                disabled={!allPassed || loading || !token}
+                disabled={!allPassed || loading || !hasSession}
                 className="w-full h-12 bg-emerald-600 text-white rounded-xl font-semibold text-sm hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/20 active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none"
               >
                 {loading ? (
@@ -169,9 +176,9 @@ export default function SetPasswordPage() {
           )}
         </div>
 
-        {!token && (
+        {hasSession === false && (
           <p className="text-center text-[10px] text-amber-600 bg-amber-50 dark:bg-amber-950/30 rounded-xl px-4 py-2 mt-4 font-medium border border-amber-200 dark:border-amber-800">
-            Token no detectado — esta pagina normalmente se accede desde el email de invitacion.
+            Sesion no detectada — esta pagina se accede desde el enlace de invitacion o recuperacion.
           </p>
         )}
       </div>

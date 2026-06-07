@@ -1,4 +1,5 @@
-import { api } from '../../../shared/api/client';
+import { supabase } from '../../../shared/lib/supabase';
+import type { PaginatedResponse } from '../../../shared/api/client';
 
 export type DocKind = 'dni' | 'pasaporte' | 'cedula' | 'licencia' | 'otro';
 
@@ -28,12 +29,75 @@ export interface CustomerTimeline {
   emails: Array<{ id: number; asunto: string; event: string; status: string; sent_at: string | null; created_at: string }>;
 }
 
-export const listCustomers = (params?: { search?: string; doc_kind?: DocKind; segment?: 'vip' | 'inactivos' | 'birthdays_month' | 'recientes'; accepts_marketing?: boolean; page?: number; limit?: number }) =>
-  api.getPaginated<Customer[]>('/api/customers', { query: params as Record<string, string | number | boolean | undefined> | undefined });
+export async function listCustomers(params?: { search?: string; doc_kind?: DocKind; segment?: 'vip' | 'inactivos' | 'birthdays_month' | 'recientes'; accepts_marketing?: boolean; page?: number; limit?: number }): Promise<PaginatedResponse<Customer[]>> {
+  const page = params?.page ?? 1;
+  const limit = params?.limit ?? 20;
+  const from = (page - 1) * limit;
+  const to = from + limit - 1;
 
-export const getCustomer = (id: number) => api.get<Customer>(`/api/customers/${id}`);
-export const getCustomerTimeline = (id: number) => api.get<CustomerTimeline>(`/api/customers/${id}/timeline`);
-export const createCustomer = (data: Partial<Customer> & { nombres: string; apellidos: string; doc_kind: DocKind; doc_numero: string }) =>
-  api.post<Customer>('/api/customers', data);
-export const updateCustomer = (id: number, data: Partial<Customer>) => api.patch<Customer>(`/api/customers/${id}`, data);
-export const deleteCustomer = (id: number) => api.delete(`/api/customers/${id}`);
+  let q = supabase.from('customers_with_stats').select('*', { count: 'exact' }).eq('active', true).order('apellidos').order('nombres').range(from, to);
+  if (params?.doc_kind) q = q.eq('doc_kind', params.doc_kind);
+  if (params?.accepts_marketing !== undefined) q = q.eq('accepts_marketing', params.accepts_marketing);
+  if (params?.search) {
+    const s = params.search;
+    q = q.or(`nombres.ilike.%${s}%,apellidos.ilike.%${s}%,doc_numero.ilike.%${s}%,email.ilike.%${s}%`);
+  }
+  const { data, error, count } = await q;
+  if (error) throw new Error(error.message);
+
+  return {
+    data: (data ?? []) as Customer[],
+    pagination: {
+      total: count ?? 0,
+      page, limit,
+      totalPages: Math.max(1, Math.ceil((count ?? 0) / limit)),
+    },
+  };
+}
+
+export async function getCustomer(id: number): Promise<Customer> {
+  const { data, error } = await supabase.from('customers_with_stats').select('*').eq('id', id).single();
+  if (error) throw new Error(error.message);
+  return data as Customer;
+}
+
+export async function getCustomerTimeline(id: number): Promise<CustomerTimeline> {
+  const { data, error } = await supabase.rpc('customer_timeline', { p_id: id });
+  if (error) throw new Error(error.message);
+  return data as CustomerTimeline;
+}
+
+export async function createCustomer(data: Partial<Customer> & { nombres: string; apellidos: string; doc_kind: DocKind; doc_numero: string }): Promise<Customer> {
+  const { data: row, error } = await supabase.from('customers').insert({
+    nombres: data.nombres,
+    apellidos: data.apellidos,
+    doc_kind: data.doc_kind,
+    doc_numero: data.doc_numero,
+    email: data.email ?? null,
+    telefono: data.telefono ?? null,
+    fecha_nacimiento: data.fecha_nacimiento ?? null,
+    nacionalidad: data.nacionalidad ?? null,
+    direccion: data.direccion ?? null,
+    preferencias: data.preferencias ?? {},
+    notas: data.notas ?? null,
+    accepts_marketing: data.accepts_marketing ?? false,
+  }).select('*').single();
+  if (error) throw new Error(error.message);
+  return { ...(row as Customer), total_estancias: 0, total_gastado: 0 };
+}
+
+export async function updateCustomer(id: number, data: Partial<Customer>): Promise<Customer> {
+  const allowed = ['nombres','apellidos','doc_kind','doc_numero','email','telefono','fecha_nacimiento','nacionalidad','direccion','preferencias','notas','accepts_marketing','active'] as const;
+  const patch: Record<string, unknown> = {};
+  for (const k of allowed) {
+    if ((data as Record<string, unknown>)[k] !== undefined) patch[k] = (data as Record<string, unknown>)[k];
+  }
+  const { error } = await supabase.from('customers').update(patch).eq('id', id);
+  if (error) throw new Error(error.message);
+  return getCustomer(id);
+}
+
+export async function deleteCustomer(id: number): Promise<void> {
+  const { error } = await supabase.from('customers').update({ active: false }).eq('id', id);
+  if (error) throw new Error(error.message);
+}

@@ -1,4 +1,4 @@
-// AuthContext: maneja login, logout, refresh, usuario actual.
+// AuthContext: sesion gestionada por Supabase Auth. user = profile (rol incluido).
 
 import {
   createContext,
@@ -8,20 +8,15 @@ import {
   useCallback,
   type ReactNode,
 } from 'react';
-import { api, setAccessToken, ApiError } from '../shared/api/client';
+import { supabase } from '../shared/lib/supabase';
 
 export type Role = 'superadmin' | 'admin' | 'recepcion' | 'limpieza' | 'contabilidad';
 
 export interface AuthUser {
-  id: number;
+  id: string;
   nombre: string;
   email: string;
   role: Role;
-}
-
-interface LoginResponse {
-  accessToken: string;
-  user: AuthUser;
 }
 
 interface AuthContextValue {
@@ -34,55 +29,56 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+async function fetchProfile(userId: string): Promise<AuthUser | null> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, nombre, email, role')
+    .eq('id', userId)
+    .single();
+  if (error || !data) return null;
+  return data as AuthUser;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Al boot, intentar refrescar la sesion via cookie httpOnly
   useEffect(() => {
     let cancel = false;
+
     (async () => {
-      try {
-        const data = await api.post<LoginResponse>('/api/auth/refresh', undefined, { skipRefresh: true });
-        if (!cancel) {
-          setAccessToken(data.accessToken);
-          setUser(data.user);
-        }
-      } catch {
-        // No habia sesion previa, ok
-      } finally {
-        if (!cancel) setIsLoading(false);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user && !cancel) {
+        const profile = await fetchProfile(session.user.id);
+        if (!cancel) setUser(profile);
       }
+      if (!cancel) setIsLoading(false);
     })();
+
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!session?.user) {
+        setUser(null);
+        return;
+      }
+      const profile = await fetchProfile(session.user.id);
+      setUser(profile);
+    });
+
     return () => {
       cancel = true;
+      sub.subscription.unsubscribe();
     };
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
-    try {
-      const data = await api.post<LoginResponse>(
-        '/api/auth/login',
-        { email, password },
-        { skipRefresh: true },
-      );
-      setAccessToken(data.accessToken);
-      setUser(data.user);
-    } catch (err) {
-      if (err instanceof ApiError) throw err;
-      throw new ApiError(500, 'Error de conexion', 'INTERNAL_ERROR');
-    }
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw new Error(error.message);
+    // onAuthStateChange dispara el setUser
   }, []);
 
   const logout = useCallback(async () => {
-    try {
-      await api.post('/api/auth/logout', undefined, { skipRefresh: true });
-    } catch {
-      // ignore
-    } finally {
-      setAccessToken(null);
-      setUser(null);
-    }
+    await supabase.auth.signOut();
+    setUser(null);
   }, []);
 
   const value: AuthContextValue = {

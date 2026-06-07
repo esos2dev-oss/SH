@@ -4,7 +4,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Bell, BellRinging, ArrowSquareOut } from '@phosphor-icons/react';
-import { api } from '../../api/client';
 import { cn } from '../../lib/cn';
 
 const POLL_MS = 30_000;
@@ -41,13 +40,9 @@ export function NotificationBell() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const r = await api.get<ActivePayload>('/api/notifications/active');
-      setData(r);
-    } catch {
-      // silencio: si el endpoint no responde, mantener el ultimo valor
-    } finally { setLoading(false); }
+    // Notificaciones aun no implementadas en Supabase. Stub vacio para no romper UI.
+    setLoading(false);
+    setData({ count: 0, bySeverity: { error: 0, warning: 0, info: 0 }, items: [], generated_at: new Date().toISOString() });
   }, []);
 
   useEffect(() => {

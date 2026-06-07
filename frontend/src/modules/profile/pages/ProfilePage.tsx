@@ -44,7 +44,7 @@ export default function ProfilePage() {
     if (!allPassed || !currentPassword) return;
     setSubmitting(true);
     try {
-      await changePassword(currentPassword, newPassword);
+      await changePassword(newPassword);
       toast.success('Contrasena actualizada. Vuelve a iniciar sesion.');
       await logout();
     } catch (err) {

@@ -59,6 +59,11 @@ backups/
 # Uploads de prueba
 uploads-tmp/
 backend/uploads/
+_backend_legacy_express/uploads/
+
+# Supabase CLI
+supabase/.branches/
+supabase/.temp/
 
 # Privado / temporal
 TODO-PRIVATE.md

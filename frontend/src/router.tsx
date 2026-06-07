@@ -64,7 +64,7 @@ export const router = createBrowserRouter(
       element: <AuthLayout />,
       children: [
         { path: '/login', element: <Suspended><LoginPage /></Suspended> },
-        { path: '/set-password/:token', element: <Suspended><SetPasswordPage /></Suspended> },
+        { path: '/set-password', element: <Suspended><SetPasswordPage /></Suspended> },
       ],
     },
     {

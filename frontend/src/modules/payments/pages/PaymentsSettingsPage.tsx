@@ -8,7 +8,8 @@ import { Button } from '../../../shared/components/ui/button';
 import { Input } from '../../../shared/components/ui/input';
 import { Label } from '../../../shared/components/ui/label';
 import { SelectNative } from '../../../shared/components/ui/select-native';
-import { ApiError, api } from '../../../shared/api/client';
+import { ApiError } from '../../../shared/api/client';
+import { supabase } from '../../../shared/lib/supabase';
 import {
   getCurrentRate, upsertRate, listRates,
   type ExchangeRate,
@@ -30,16 +31,18 @@ interface SettingRecord {
 }
 
 const fetchSetting = async (key: string): Promise<unknown> => {
-  try {
-    const r = await api.get<SettingRecord>(`/api/settings/${key}`);
-    return r.value;
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 404) return null;
-    throw e;
-  }
+  const { data, error } = await supabase.from('settings').select('value').eq('key', key).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data?.value ?? null;
 };
 
-const writeSetting = (key: string, value: unknown) => api.put<SettingRecord>(`/api/settings/${key}`, { value });
+const writeSetting = async (key: string, value: unknown): Promise<SettingRecord> => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('No autenticado');
+  const { data, error } = await supabase.from('settings').upsert({ key, value, updated_by: user.id, updated_at: new Date().toISOString() }).select('*').single();
+  if (error) throw new Error(error.message);
+  return data as SettingRecord;
+};
 
 export default function PaymentsSettingsPage() {
   return (
