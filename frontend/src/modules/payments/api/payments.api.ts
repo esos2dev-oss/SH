@@ -217,10 +217,12 @@ export async function createPayment(data: CreatePaymentInput): Promise<PaymentPu
   return getPayment((row as { id: number }).id);
 }
 
-export async function updatePayment(id: number, data: { notas?: string | null; referencia?: string | null }): Promise<PaymentPublic> {
+export async function updatePayment(id: number, data: { notas?: string | null; referencia?: string | null; receipt_url?: string | null; receipt_mime?: string | null }): Promise<PaymentPublic> {
   const patch: Record<string, unknown> = {};
   if (data.notas !== undefined) patch.notas = data.notas;
   if (data.referencia !== undefined) patch.referencia = data.referencia;
+  if (data.receipt_url !== undefined) patch.receipt_url = data.receipt_url;
+  if (data.receipt_mime !== undefined) patch.receipt_mime = data.receipt_mime;
   const { error } = await supabase.from('booking_payments').update(patch).eq('id', id);
   if (error) throw new Error(error.message);
   return getPayment(id);

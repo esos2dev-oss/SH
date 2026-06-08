@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type ComponentType } from 'react';
 import { toast } from 'sonner';
-import { Coins, Printer, CheckSquare, Receipt, Clock, type IconProps } from '@phosphor-icons/react';
+import { Coins, Printer, CheckSquare, Receipt, Clock, Hourglass, type IconProps } from '@phosphor-icons/react';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { Button } from '../../../shared/components/ui/button';
 import { Input } from '../../../shared/components/ui/input';
@@ -26,6 +26,15 @@ function toLocalDatetimeInput(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+function formatDuration(ms: number): string {
+  if (ms <= 0) return '0m';
+  const totalMin = Math.floor(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `${m}m`;
+  return `${h}h ${m}m`;
+}
+
 export default function CashClosurePage() {
   const dialog = useDialog();
   const [openedAt, setOpenedAt] = useState<string>(() => {
@@ -33,6 +42,8 @@ export default function CashClosurePage() {
     d.setHours(0, 0, 0, 0);
     return toLocalDatetimeInput(d);
   });
+  const [closedAt, setClosedAt] = useState<string>(() => toLocalDatetimeInput(new Date()));
+  const [tickNow, setTickNow] = useState(0);
   const [notas, setNotas] = useState('');
   const [totals, setTotals] = useState<CashClosureTotals | null>(null);
   const [loading, setLoading] = useState(false);
@@ -60,6 +71,12 @@ export default function CashClosurePage() {
   useEffect(() => { void loadPreview(); }, [loadPreview]);
   useEffect(() => { void loadHistory(); }, [loadHistory]);
 
+  // Tick cada 60s para refrescar duracion del turno en vivo
+  useEffect(() => {
+    const id = setInterval(() => setTickNow((n) => n + 1), 60000);
+    return () => clearInterval(id);
+  }, []);
+
   // Precargar opened_at con el ultimo cierre del usuario
   useEffect(() => {
     (async () => {
@@ -86,7 +103,7 @@ export default function CashClosurePage() {
     try {
       const closure = await closeShift({
         opened_at: new Date(openedAt).toISOString(),
-        closed_at: new Date().toISOString(),
+        closed_at: new Date(closedAt).toISOString(),
         notas: notas || null,
       });
       toast.success(`Cierre ${closure.codigo} creado`);
@@ -104,6 +121,15 @@ export default function CashClosurePage() {
     ? Object.values(totals.by_method).reduce((acc, m) => acc + m.count, 0)
     : 0;
   const pendingCount = totals ? totals.total_count - confirmedCount : 0;
+
+  // Duracion del turno: desde openedAt hasta closedAt (en vivo si esta "ahora")
+  const durationMs = (() => {
+    const open = new Date(openedAt).getTime();
+    const close = new Date(closedAt).getTime();
+    return close - open;
+  })();
+  // Marcador de uso de tickNow para que el efecto recalcule cada minuto
+  void tickNow;
 
   return (
     <div className="space-y-6">
@@ -123,7 +149,7 @@ export default function CashClosurePage() {
         }
       />
 
-      <div className="bg-card border border-border rounded-2xl p-5 grid grid-cols-1 md:grid-cols-2 gap-3 print:hidden">
+      <div className="bg-card border border-border rounded-2xl p-5 grid grid-cols-1 md:grid-cols-3 gap-3 print:hidden">
         <div>
           <Label htmlFor="cc-from">Desde (apertura turno)</Label>
           <Input
@@ -132,7 +158,22 @@ export default function CashClosurePage() {
             value={openedAt}
             onChange={(e) => setOpenedAt(e.target.value)}
           />
-          <p className="text-[11px] text-muted-foreground mt-1">El "hasta" es ahora.</p>
+        </div>
+        <div>
+          <Label htmlFor="cc-to">Hasta (cierre)</Label>
+          <Input
+            id="cc-to"
+            type="datetime-local"
+            value={closedAt}
+            onChange={(e) => setClosedAt(e.target.value)}
+          />
+          <button
+            type="button"
+            onClick={() => setClosedAt(toLocalDatetimeInput(new Date()))}
+            className="text-[11px] text-primary hover:underline mt-1"
+          >
+            Usar hora actual
+          </button>
         </div>
         <div>
           <Label htmlFor="cc-notas">Notas del turno</Label>
@@ -140,11 +181,19 @@ export default function CashClosurePage() {
         </div>
       </div>
 
+      <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4 flex items-center gap-3 print:hidden">
+        <Hourglass size={18} weight="duotone" className="text-primary shrink-0" />
+        <p className="text-sm">
+          Turno desde <strong>{formatDateTime(openedAt)}</strong> hasta <strong>{formatDateTime(closedAt)}</strong> ·
+          {' '}duracion <strong className="tabular-nums">{formatDuration(durationMs)}</strong>
+        </p>
+      </div>
+
       {loading ? (
         <p className="text-center py-8 text-sm text-muted-foreground">Cargando resumen...</p>
       ) : !totals ? null : (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Kpi icon={Coins} label="Pagos confirmados" value={confirmedCount.toString()} />
             <Kpi icon={Receipt} label="Total registros" value={totals.total_count.toString()} />
             <Kpi
@@ -153,7 +202,7 @@ export default function CashClosurePage() {
               value={pendingCount.toString()}
               amber={pendingCount > 0}
             />
-            <Kpi label="Apertura" value={formatDateTime(openedAt)} small />
+            <Kpi icon={Hourglass} label="Duracion turno" value={formatDuration(durationMs)} />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

@@ -3,6 +3,25 @@ import type { PaginatedResponse } from '../../../shared/api/client';
 
 export type DocKind = 'dni' | 'pasaporte' | 'cedula' | 'licencia' | 'otro';
 
+export type ReferralSource =
+  | 'instagram'
+  | 'facebook'
+  | 'google'
+  | 'recomendacion'
+  | 'calle'
+  | 'recurrente'
+  | 'otro';
+
+export const REFERRAL_SOURCE_LABELS: Record<ReferralSource, string> = {
+  instagram: 'Instagram',
+  facebook: 'Facebook',
+  google: 'Google',
+  recomendacion: 'Recomendación',
+  calle: 'Pasó por la calle',
+  recurrente: 'Cliente recurrente',
+  otro: 'Otro',
+};
+
 export interface Customer {
   id: number;
   nombres: string;
@@ -14,6 +33,9 @@ export interface Customer {
   fecha_nacimiento: string | null;
   nacionalidad: string | null;
   direccion: string | null;
+  vehicle_plate: string | null;
+  referral_source: ReferralSource | null;
+  referral_other: string | null;
   preferencias: Record<string, unknown>;
   notas: string | null;
   accepts_marketing: boolean;
@@ -78,16 +100,25 @@ export async function createCustomer(data: Partial<Customer> & { nombres: string
     fecha_nacimiento: data.fecha_nacimiento ?? null,
     nacionalidad: data.nacionalidad ?? null,
     direccion: data.direccion ?? null,
+    vehicle_plate: data.vehicle_plate ?? null,
+    referral_source: data.referral_source ?? null,
+    referral_other: data.referral_other ?? null,
     preferencias: data.preferencias ?? {},
     notas: data.notas ?? null,
     accepts_marketing: data.accepts_marketing ?? false,
   }).select('*').single();
-  if (error) throw new Error(error.message);
+  if (error) {
+    // 23505 = unique_violation. UNIQUE constraint en (doc_kind, doc_numero).
+    if ((error as { code?: string }).code === '23505') {
+      throw new Error(`Ya existe un huesped con ${data.doc_kind} ${data.doc_numero}. Usa "Buscar existente".`);
+    }
+    throw new Error(error.message);
+  }
   return { ...(row as Customer), total_estancias: 0, total_gastado: 0 };
 }
 
 export async function updateCustomer(id: number, data: Partial<Customer>): Promise<Customer> {
-  const allowed = ['nombres','apellidos','doc_kind','doc_numero','email','telefono','fecha_nacimiento','nacionalidad','direccion','preferencias','notas','accepts_marketing','active'] as const;
+  const allowed = ['nombres','apellidos','doc_kind','doc_numero','email','telefono','fecha_nacimiento','nacionalidad','direccion','vehicle_plate','referral_source','referral_other','preferencias','notas','accepts_marketing','active'] as const;
   const patch: Record<string, unknown> = {};
   for (const k of allowed) {
     if ((data as Record<string, unknown>)[k] !== undefined) patch[k] = (data as Record<string, unknown>)[k];

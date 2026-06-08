@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ArrowLeft, EnvelopeSimple, Phone, IdentificationCard, Calendar, Globe } from '@phosphor-icons/react';
+import { ArrowLeft, EnvelopeSimple, Phone, IdentificationCard, Calendar, Globe, MapPin, Car, Sparkle, PencilSimple } from '@phosphor-icons/react';
 import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
-import { getCustomer, getCustomerTimeline, type Customer, type CustomerTimeline } from '../api/customers.api';
+import { getCustomer, getCustomerTimeline, REFERRAL_SOURCE_LABELS, type Customer, type CustomerTimeline } from '../api/customers.api';
+import { CustomerFormDialog } from '../components/CustomerFormDialog';
 import { formatCurrency, formatDate, formatDateTime } from '../../../shared/lib/format';
 import { BookingStatusBadge } from '../../../shared/components/ui/StatusBadge';
 import { GuestStatement } from '../../payments/components/GuestStatement';
@@ -17,6 +18,7 @@ export default function CustomerDetailPage() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [timeline, setTimeline] = useState<CustomerTimeline | null>(null);
   const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -39,7 +41,14 @@ export default function CustomerDetailPage() {
       <PageHeader
         title={`${customer.nombres} ${customer.apellidos}`}
         subtitle={`${customer.total_estancias} estancias · ${formatCurrency(customer.total_gastado)}`}
-        actions={
+        actions={<>
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="h-10 px-4 text-sm font-bold border border-border bg-card rounded-lg hover:bg-muted flex items-center gap-1.5"
+          >
+            <PencilSimple size={14} weight="bold" /> Editar
+          </button>
           <button
             type="button"
             onClick={() => quickPay.open({
@@ -58,7 +67,7 @@ export default function CustomerDetailPage() {
           >
             <CurrencyCircleDollar size={16} weight="duotone" /> Registrar pago
           </button>
-        }
+        </>}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -73,8 +82,19 @@ export default function CustomerDetailPage() {
           <div className="space-y-2 text-sm">
             {customer.email && <div className="flex items-center gap-2 text-muted-foreground"><EnvelopeSimple size={14} /> {customer.email}</div>}
             {customer.telefono && <div className="flex items-center gap-2 text-muted-foreground"><Phone size={14} /> {customer.telefono}</div>}
+            {customer.direccion && <div className="flex items-start gap-2 text-muted-foreground"><MapPin size={14} className="mt-0.5 shrink-0" /> {customer.direccion}</div>}
             {customer.nacionalidad && <div className="flex items-center gap-2 text-muted-foreground"><Globe size={14} /> {customer.nacionalidad}</div>}
             {customer.fecha_nacimiento && <div className="flex items-center gap-2 text-muted-foreground"><Calendar size={14} /> {formatDate(customer.fecha_nacimiento)}</div>}
+            {customer.vehicle_plate && <div className="flex items-center gap-2 text-muted-foreground"><Car size={14} /> Placa <span className="font-mono font-semibold">{customer.vehicle_plate}</span></div>}
+            {customer.referral_source && (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Sparkle size={14} /> Nos conocio: <span className="font-medium text-foreground">
+                  {customer.referral_source === 'otro' && customer.referral_other
+                    ? customer.referral_other
+                    : REFERRAL_SOURCE_LABELS[customer.referral_source]}
+                </span>
+              </div>
+            )}
             <div className="flex items-center gap-2 text-muted-foreground"><IdentificationCard size={14} /> Marketing: {customer.accepts_marketing ? 'Si' : 'No'}</div>
           </div>
           {customer.notas && (
@@ -128,6 +148,14 @@ export default function CustomerDetailPage() {
             ))}
           </div>
         </div>
+      )}
+
+      {editing && (
+        <CustomerFormDialog
+          customer={customer}
+          onClose={() => setEditing(false)}
+          onSaved={(c) => { setCustomer(c); setEditing(false); }}
+        />
       )}
     </div>
   );

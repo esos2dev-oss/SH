@@ -12,6 +12,7 @@ export interface Booking {
   moneda: string;
   payment_status: 'pendiente' | 'parcial' | 'pagado' | 'reembolsado';
   status: BookingStatus; origen: string; notas: string | null;
+  vehicle_plate: string | null;
   cancelled_at: string | null; cancelled_reason: string | null;
   customer: { id: number; nombre: string; email: string | null };
   room: { id: number; numero: string; planta: string | null; type: string };
@@ -19,7 +20,8 @@ export interface Booking {
 }
 
 export interface AvailabilityRoom {
-  id: number; numero: string; planta: string | null; room_type: string; tarifa_dia: number;
+  id: number; numero: string; planta: string | null; room_type: string;
+  tarifa_dia: number; tarifa_semana: number; tarifa_mes: number;
 }
 
 export async function listBookings(params?: {
@@ -74,23 +76,31 @@ export async function availability(params: { dateFrom: string; dateTo: string; r
   if (e1) throw new Error(e1.message);
   const occupiedIds = (occupied ?? []).map((r) => r.room_id);
 
-  let q = supabase.from('rooms').select('id, numero, planta, room_type:room_types(id, nombre, tarifa_dia, capacidad)').eq('active', true);
+  let q = supabase.from('rooms').select('id, numero, planta, room_type:room_types(id, nombre, tarifa_dia, tarifa_semana, tarifa_mes, capacidad)').eq('active', true);
   if (occupiedIds.length) q = q.not('id', 'in', `(${occupiedIds.join(',')})`);
   if (params.room_type_id) q = q.eq('room_type_id', params.room_type_id);
 
   const { data, error } = await q;
   if (error) throw new Error(error.message);
-  type Row = { id: number; numero: string; planta: string | null; room_type: { nombre: string; tarifa_dia: number; capacidad: number } | null };
+  type Row = { id: number; numero: string; planta: string | null; room_type: { nombre: string; tarifa_dia: number; tarifa_semana: number; tarifa_mes: number; capacidad: number } | null };
   const rows = (data ?? []) as unknown as Row[];
   return rows
     .filter((r) => !params.huespedes || (r.room_type?.capacidad ?? 0) >= params.huespedes)
-    .map((r) => ({ id: r.id, numero: r.numero, planta: r.planta, room_type: r.room_type?.nombre ?? '', tarifa_dia: Number(r.room_type?.tarifa_dia ?? 0) }));
+    .map((r) => ({
+      id: r.id, numero: r.numero, planta: r.planta,
+      room_type: r.room_type?.nombre ?? '',
+      tarifa_dia: Number(r.room_type?.tarifa_dia ?? 0),
+      tarifa_semana: Number(r.room_type?.tarifa_semana ?? 0),
+      tarifa_mes: Number(r.room_type?.tarifa_mes ?? 0),
+    }));
 }
 
 export async function createBooking(data: {
   customer_id: number; room_id: number; period: BookingPeriod;
   fecha_entrada: string; fecha_salida: string; huespedes?: number;
-  descuento_pct?: number; descuento_monto?: number; notas?: string | null;
+  descuento_pct?: number; descuento_monto?: number;
+  vehicle_plate?: string | null;
+  notas?: string | null;
 }): Promise<Booking> {
   const created = await invokeFunction<{ id: number }>('booking-create', data as unknown as Record<string, unknown>);
   return getBooking(created.id);
@@ -133,6 +143,12 @@ export async function moveBooking(id: number, data: { room_id?: number; fecha_en
   if (data.fecha_entrada !== undefined)  patch.fecha_entrada = data.fecha_entrada;
   if (data.fecha_salida !== undefined)   patch.fecha_salida = data.fecha_salida;
   const { error } = await supabase.from('bookings').update(patch).eq('id', id);
-  if (error) throw new Error(error.message);
+  if (error) {
+    // 23P01 = exclusion_violation (solapamiento con otra reserva)
+    if ((error as { code?: string }).code === '23P01') {
+      throw new Error('La habitacion ya tiene una reserva en ese rango. Cambia las fechas o elige otra habitacion.');
+    }
+    throw new Error(error.message);
+  }
   return getBooking(id);
 }

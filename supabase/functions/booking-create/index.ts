@@ -26,6 +26,7 @@ interface BookingInput {
   huespedes?: number;
   descuento_pct?: number;
   descuento_monto?: number;
+  vehicle_plate?: string | null;
   notas?: string;
 }
 
@@ -100,6 +101,7 @@ Deno.serve(async (req) => {
         moneda: rt.moneda,
         status: 'pendiente',
         payment_status: 'pendiente',
+        vehicle_plate: body.vehicle_plate ?? null,
         notas: body.notas,
         created_by: user.id,
       })

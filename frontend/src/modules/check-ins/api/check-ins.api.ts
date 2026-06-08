@@ -58,14 +58,22 @@ export async function createCheckIn(data: {
   return ci;
 }
 
-export async function checkOut(bookingId: number, observaciones?: string | null): Promise<CheckIn> {
-  if (observaciones !== undefined && observaciones !== null) {
-    await supabase.from('check_ins').update({ observaciones }).eq('booking_id', bookingId);
+export interface CheckOutResult { check_in: CheckIn; cleaning_order_id: number | null; room_id: number; }
+
+export async function checkOut(
+  bookingId: number,
+  options?: { observaciones?: string | null; notas_limpieza?: string | null },
+): Promise<CheckOutResult> {
+  if (options?.observaciones !== undefined && options.observaciones !== null) {
+    await supabase.from('check_ins').update({ observaciones: options.observaciones }).eq('booking_id', bookingId);
   }
-  await invokeFunction('booking-checkout', { booking_id: bookingId } as Record<string, unknown>);
+  const r = await invokeFunction<{ booking_id: number; room_id: number; cleaning_order_id: number | null }>(
+    'booking-checkout',
+    { booking_id: bookingId, notas_limpieza: options?.notas_limpieza ?? null } as Record<string, unknown>,
+  );
   const ci = await getCheckIn(bookingId);
   if (!ci) throw new Error('Check-in no encontrado');
-  return ci;
+  return { check_in: ci, cleaning_order_id: r.cleaning_order_id, room_id: r.room_id };
 }
 
 export async function documentoUrl(bookingId: number): Promise<{ url: string }> {

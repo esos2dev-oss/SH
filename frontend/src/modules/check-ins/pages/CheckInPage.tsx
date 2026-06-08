@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ClipboardText, ArrowLeft, FileImage, FilePdf, CurrencyCircleDollar } from '@phosphor-icons/react';
+import { ClipboardText, ArrowLeft, FileImage, FilePdf, CurrencyCircleDollar, Users, Plus, Trash } from '@phosphor-icons/react';
 import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { SignaturePad } from '../../../shared/components/ui/signature-pad';
@@ -12,16 +12,19 @@ import { createCheckIn } from '../api/check-ins.api';
 import { useQuickPayment, useOnPaymentSaved } from '../../payments/hooks/QuickPaymentProvider';
 import { formatCurrency, formatDateTime } from '../../../shared/lib/format';
 import { BookingStatusBadge, PaymentStatusBadge } from '../../../shared/components/ui/StatusBadge';
+import { useDialog } from '../../../shared/components/ui/dialog-system';
 
 export default function CheckInPage() {
   const { bookingId } = useParams<{ bookingId: string }>();
   const navigate = useNavigate();
   const quickPay = useQuickPayment();
+  const dialog = useDialog();
   const [booking, setBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
   const [observaciones, setObservaciones] = useState('');
   const [documento, setDocumento] = useState<File | null>(null);
   const [firma, setFirma] = useState<File | null>(null);
+  const [acompaniantes, setAcompaniantes] = useState<Array<{ nombre: string; documento: string }>>([]);
   const [submitting, setSubmitting] = useState(false);
 
   const reload = useCallback(async () => {
@@ -67,13 +70,28 @@ export default function CheckInPage() {
       toast.error(`No se puede hacer check-in en reserva ${booking.status}`);
       return;
     }
+    // Confirmacion explicita si hay saldo pendiente — evita que recepcion
+    // haga check-in sin darse cuenta del saldo.
+    if (booking.importe_pendiente > 0) {
+      const ok = await dialog.confirm({
+        title: 'Saldo pendiente',
+        message: `Esta reserva tiene un saldo pendiente de ${formatCurrency(booking.importe_pendiente, booking.moneda)}. Hacer check-in de todas formas?`,
+        confirmLabel: 'Hacer check-in igual',
+        danger: true,
+      });
+      if (!ok) return;
+    }
     setSubmitting(true);
     try {
+      const cleanAcomp = acompaniantes
+        .filter((a) => a.nombre.trim())
+        .map((a) => ({ nombre: a.nombre.trim(), documento: a.documento.trim() || null }));
       await createCheckIn({
         booking_id: booking.id,
         observaciones: observaciones.trim() || null,
         documento: documento ?? undefined,
         firma: firma ?? undefined,
+        huespedes_acompaniantes: cleanAcomp.length > 0 ? cleanAcomp : undefined,
       });
       toast.success('Check-in registrado. Habitacion ocupada.');
       navigate(`/bookings/${booking.id}`);
@@ -165,6 +183,45 @@ export default function CheckInPage() {
           </p>
           {firma && <p className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400">✓ Firma adjuntada</p>}
         </div>
+
+        {booking.huespedes > 1 && (
+          <div>
+            <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block px-1 flex items-center gap-1.5">
+              <Users size={12} weight="duotone" /> Acompañantes ({booking.huespedes - 1} esperado{booking.huespedes - 1 > 1 ? 's' : ''})
+            </label>
+            <div className="space-y-2">
+              {acompaniantes.map((a, i) => (
+                <div key={i} className="flex gap-2 items-center">
+                  <input
+                    value={a.nombre}
+                    onChange={(e) => setAcompaniantes(acompaniantes.map((x, j) => j === i ? { ...x, nombre: e.target.value } : x))}
+                    placeholder="Nombre completo"
+                    className="flex-1 h-10 px-3 rounded-lg border border-border bg-muted/50 text-sm outline-none focus:border-primary focus:bg-card"
+                  />
+                  <input
+                    value={a.documento}
+                    onChange={(e) => setAcompaniantes(acompaniantes.map((x, j) => j === i ? { ...x, documento: e.target.value } : x))}
+                    placeholder="Documento (opcional)"
+                    className="w-44 h-10 px-3 rounded-lg border border-border bg-muted/50 text-sm outline-none focus:border-primary focus:bg-card"
+                  />
+                  <button type="button" onClick={() => setAcompaniantes(acompaniantes.filter((_, j) => j !== i))} className="p-2 rounded-lg hover:bg-red-50 text-red-600 dark:hover:bg-red-950/30" title="Quitar">
+                    <Trash size={14} weight="bold" />
+                  </button>
+                </div>
+              ))}
+              {acompaniantes.length < booking.huespedes - 1 && (
+                <button
+                  type="button"
+                  onClick={() => setAcompaniantes([...acompaniantes, { nombre: '', documento: '' }])}
+                  className="h-9 px-3 text-xs font-semibold border border-dashed border-border bg-card rounded-lg hover:bg-muted flex items-center gap-1.5"
+                >
+                  <Plus size={12} weight="bold" /> Añadir acompañante
+                </button>
+              )}
+            </div>
+            <p className="mt-1 text-[10px] text-muted-foreground">Captura los nombres de los acompañantes. El documento es opcional pero recomendado.</p>
+          </div>
+        )}
 
         <div>
           <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block px-1">Observaciones</label>

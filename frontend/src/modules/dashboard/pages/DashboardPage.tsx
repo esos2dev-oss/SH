@@ -1,19 +1,20 @@
 // Panel del dia: 3 columnas (Hoy / Tablero / Inbox) + KPIs.
 
 import { useCallback, useEffect, useState, type ComponentType } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   Bed, CalendarCheck, DoorOpen, Broom, Cake,
   CurrencyCircleDollar, WarningCircle, ArrowsClockwise, Phone,
+  Plus, UserPlus, ClipboardText, Stack, ChartLineUp, CalendarBlank,
   type IconProps,
 } from '@phosphor-icons/react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import {
-  getDashboardToday,
-  type DashboardPayload,
+  getDashboardToday, getOccupancyExtras,
+  type DashboardPayload, type OccupancyExtras,
   type ArrivalToday,
   type DepartureToday,
   type CleaningPending,
@@ -22,6 +23,7 @@ import {
   type BookingWithoutPaymentItem,
   type RoomBoardItem,
 } from '../api/dashboard.api';
+import { BookingFormDialog } from '../../bookings/components/BookingFormDialog';
 import { useQuickPayment, useOnPaymentSaved } from '../../payments/hooks/QuickPaymentProvider';
 import { METHOD_LABELS } from '../../payments/lib/labels';
 import type { PaymentMethod } from '../../payments/api/payments.api';
@@ -42,15 +44,22 @@ const ROOM_STATUS_STYLES: Record<string, { bg: string; text: string; label: stri
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const quickPay = useQuickPayment();
   const [data, setData] = useState<DashboardPayload | null>(null);
+  const [occupancyExtras, setOccupancyExtras] = useState<OccupancyExtras | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showBookingForm, setShowBookingForm] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await getDashboardToday();
+      const [r, occ] = await Promise.all([
+        getDashboardToday(),
+        getOccupancyExtras().catch(() => null), // no critico: si falla, no rompe el panel
+      ]);
       setData(r);
+      setOccupancyExtras(occ);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Error cargando el panel');
     } finally { setLoading(false); }
@@ -79,25 +88,42 @@ export default function DashboardPage() {
         }
       />
 
-      {/* KPIs */}
+      {/* Quick actions */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+        <QuickAction icon={Plus} label="Nueva reserva" onClick={() => setShowBookingForm(true)} primary />
+        <QuickAction icon={CurrencyCircleDollar} label="Registrar pago" onClick={() => quickPay.open()} />
+        <QuickAction icon={UserPlus} label="Nuevo huesped" onClick={() => navigate('/customers')} />
+        <QuickAction icon={ClipboardText} label="Reservas" onClick={() => navigate('/bookings')} />
+        <QuickAction icon={Stack} label="Cierre caja" onClick={() => navigate('/payments/cash-closure')} />
+        <QuickAction icon={ChartLineUp} label="Reportes" onClick={() => navigate('/reports')} />
+      </div>
+
+      {/* KPIs operativos */}
       {data && (
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
           <Kpi icon={CalendarCheck} label="Llegadas hoy" value={data.kpis.arrivals_count} />
           <Kpi icon={DoorOpen} label="Salidas hoy" value={data.kpis.departures_count} />
-          <Kpi icon={Bed} label="Ocupacion" value={`${data.kpis.occupancy_pct}%`} sub={`${data.kpis.rooms_occupied}/${data.kpis.rooms_total}`} />
+          <Kpi icon={Bed} label="Ocupacion hoy" value={`${data.kpis.occupancy_pct}%`} sub={`${data.kpis.rooms_occupied}/${data.kpis.rooms_total}`} />
           <Kpi icon={Broom} label="Limpiezas" value={data.kpis.cleanings_pending_count} amber={data.kpis.cleanings_pending_count > 0} />
           <Kpi icon={CurrencyCircleDollar} label="Pagos pendientes" value={data.kpis.pending_payments_count} amber={data.kpis.pending_payments_count > 0} />
-          <div className="col-span-2 lg:col-span-1 flex items-center justify-center">
-            <button
-              type="button"
-              onClick={() => quickPay.open()}
-              className="w-full h-full min-h-[80px] rounded-2xl bg-primary text-primary-foreground font-bold text-sm hover:bg-primary/90 shadow-sm shadow-primary/20 flex flex-col items-center justify-center gap-1"
-            >
-              <CurrencyCircleDollar size={20} weight="duotone" />
-              Registrar pago
-              <span className="text-[10px] font-mono bg-primary-foreground/20 rounded px-1">P</span>
-            </button>
-          </div>
+        </div>
+      )}
+
+      {/* Ocupacion mes / anio */}
+      {occupancyExtras && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <OccupancyCard
+            icon={CalendarBlank}
+            title="Ocupacion del mes"
+            pct={occupancyExtras.month.occupancyPct}
+            sub={`Ingresos ${formatCurrency(occupancyExtras.month.revenue)}`}
+          />
+          <OccupancyCard
+            icon={ChartLineUp}
+            title="Ocupacion del anio"
+            pct={occupancyExtras.year.occupancyPct}
+            sub={`Ingresos ${formatCurrency(occupancyExtras.year.revenue)}`}
+          />
         </div>
       )}
 
@@ -184,6 +210,53 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {showBookingForm && (
+        <BookingFormDialog
+          onClose={() => setShowBookingForm(false)}
+          onSaved={(bookingId) => {
+            setShowBookingForm(false);
+            void load();
+            navigate(`/bookings/${bookingId}`);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function QuickAction({ icon: Icon, label, onClick, primary }: { icon: IconType; label: string; onClick: () => void; primary?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'h-16 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all border shadow-sm',
+        primary
+          ? 'bg-primary text-primary-foreground border-primary hover:bg-primary/90 shadow-primary/20'
+          : 'bg-card text-foreground border-border hover:bg-muted/50',
+      )}
+    >
+      <Icon size={20} weight="duotone" />
+      <span className="text-[11px] font-bold">{label}</span>
+    </button>
+  );
+}
+
+function OccupancyCard({ icon: Icon, title, pct, sub }: { icon: IconType; title: string; pct: number; sub: string }) {
+  return (
+    <div className="bg-card border border-border rounded-2xl p-4 shadow-sm">
+      <div className="flex items-center gap-2 mb-2">
+        <Icon size={16} weight="duotone" className="text-primary" />
+        <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{title}</p>
+      </div>
+      <div className="flex items-baseline gap-3">
+        <p className="text-3xl font-extrabold tabular-nums">{pct}%</p>
+        <p className="text-xs text-muted-foreground">{sub}</p>
+      </div>
+      <div className="mt-2 h-2 rounded-full bg-muted overflow-hidden">
+        <div className="h-full bg-primary transition-all" style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
+      </div>
     </div>
   );
 }

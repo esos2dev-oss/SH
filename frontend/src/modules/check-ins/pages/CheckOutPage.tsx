@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ArrowLeft, CheckCircle, Eye, CurrencyCircleDollar } from '@phosphor-icons/react';
+import { ArrowLeft, CheckCircle, Eye, CurrencyCircleDollar, Broom } from '@phosphor-icons/react';
 import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { getBooking, type Booking } from '../../bookings/api/bookings.api';
@@ -20,6 +20,7 @@ export default function CheckOutPage() {
   const [checkIn, setCheckIn] = useState<CheckIn | null>(null);
   const [loading, setLoading] = useState(true);
   const [observaciones, setObservaciones] = useState('');
+  const [notasLimpieza, setNotasLimpieza] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const reload = useCallback(async () => {
@@ -78,8 +79,15 @@ export default function CheckOutPage() {
     }
     setSubmitting(true);
     try {
-      await checkOut(booking.id, observaciones.trim() || null);
-      toast.success('Check-out completado. Habitacion en limpieza.');
+      const r = await checkOut(booking.id, {
+        observaciones: observaciones.trim() || null,
+        notas_limpieza: notasLimpieza.trim() || null,
+      });
+      if (r.cleaning_order_id) {
+        toast.success(`Check-out completado · Habitacion ${booking.room.numero} enviada a limpieza`);
+      } else {
+        toast.success('Check-out completado · Habitacion en limpieza');
+      }
       navigate(`/bookings/${booking.id}`);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Error');
@@ -140,11 +148,21 @@ export default function CheckOutPage() {
           )}
           <div>
             <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block px-1">Observaciones de salida</label>
-            <textarea value={observaciones} onChange={(e) => setObservaciones(e.target.value)} rows={3} className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 text-sm outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 focus:bg-card" placeholder="Estado de la habitacion, cargos extras, etc." />
+            <textarea value={observaciones} onChange={(e) => setObservaciones(e.target.value)} rows={2} className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 text-sm outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 focus:bg-card" placeholder="Estado de la habitacion, cargos extras, etc." />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block px-1 flex items-center gap-1.5">
+              <Broom size={12} weight="duotone" /> Notas para limpieza (opcional)
+            </label>
+            <textarea value={notasLimpieza} onChange={(e) => setNotasLimpieza(e.target.value)} rows={2} className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 text-sm outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 focus:bg-card" placeholder="Manchas en sabanas, requiere repaso de baño, etc." />
+          </div>
+          <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-xl p-3 flex items-start gap-2 text-xs text-blue-700 dark:text-blue-300">
+            <Broom size={16} weight="duotone" className="shrink-0 mt-0.5" />
+            <p>Al confirmar, la habitacion <strong>{booking.room.numero}</strong> pasa a estado <strong>limpieza</strong> y se genera la orden para el equipo.</p>
           </div>
           <button type="submit" disabled={submitting} className="h-11 px-6 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 shadow-lg shadow-blue-600/20 disabled:opacity-60 flex items-center gap-2">
             <CheckCircle size={16} weight="bold" />
-            {submitting ? 'Procesando...' : 'Confirmar check-out'}
+            {submitting ? 'Procesando...' : 'Confirmar check-out y enviar a limpieza'}
           </button>
         </form>
       )}

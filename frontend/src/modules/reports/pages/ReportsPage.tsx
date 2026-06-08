@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { ArrowDown, ArrowUp, Receipt, ChartLineUp, ChartBar, DownloadSimple } from '@phosphor-icons/react';
+import { ArrowDown, ArrowUp, Receipt, ChartLineUp, ChartBar, DownloadSimple, CalendarBlank } from '@phosphor-icons/react';
+import { cn } from '../../../shared/lib/cn';
 import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import {
@@ -11,10 +12,36 @@ import { METHOD_LABELS } from '../../payments/lib/labels';
 import type { PaymentMethod } from '../../payments/api/payments.api';
 import { formatCurrency } from '../../../shared/lib/format';
 
+type RangePreset = 'today' | 'week' | 'month' | 'year' | 'custom';
+
 export default function ReportsPage() {
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly'>('monthly');
   const [dateFrom, setDateFrom] = useState(firstDayOfMonth());
   const [dateTo, setDateTo] = useState(today());
+  const [preset, setPreset] = useState<RangePreset>('month');
+
+  function applyPreset(p: RangePreset) {
+    setPreset(p);
+    const now = new Date();
+    if (p === 'today') {
+      const d = isoDate(now);
+      setDateFrom(d); setDateTo(d);
+      setPeriod('daily');
+    } else if (p === 'week') {
+      const start = new Date(now);
+      const dow = (start.getDay() + 6) % 7; // lunes = 0
+      start.setDate(start.getDate() - dow);
+      setDateFrom(isoDate(start)); setDateTo(isoDate(now));
+      setPeriod('daily');
+    } else if (p === 'month') {
+      setDateFrom(firstDayOfMonth()); setDateTo(isoDate(now));
+      setPeriod('daily');
+    } else if (p === 'year') {
+      setDateFrom(isoDate(new Date(now.getFullYear(), 0, 1)));
+      setDateTo(isoDate(now));
+      setPeriod('monthly');
+    }
+  }
   const [financial, setFinancial] = useState<FinancialReport | null>(null);
   const [customers, setCustomers] = useState<CustomersReport | null>(null);
   const [kpis, setKpis] = useState<KpisReport | null>(null);
@@ -57,11 +84,22 @@ export default function ReportsPage() {
         }
       />
 
-      {/* Filtros */}
+      {/* Atajos de rango */}
+      <div className="flex flex-wrap gap-1.5 items-center bg-card border border-border rounded-2xl p-1.5">
+        <CalendarBlank size={14} className="text-muted-foreground ml-2" />
+        <PresetButton active={preset === 'today'} onClick={() => applyPreset('today')}>Hoy</PresetButton>
+        <PresetButton active={preset === 'week'} onClick={() => applyPreset('week')}>Esta semana</PresetButton>
+        <PresetButton active={preset === 'month'} onClick={() => applyPreset('month')}>Este mes</PresetButton>
+        <PresetButton active={preset === 'year'} onClick={() => applyPreset('year')}>Este anio</PresetButton>
+        <div className="h-6 w-px bg-border mx-1" />
+        <PresetButton active={preset === 'custom'} onClick={() => setPreset('custom')}>Personalizado</PresetButton>
+      </div>
+
+      {/* Filtros granulares */}
       <div className="flex flex-wrap gap-2 items-end">
         <div>
-          <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Periodo</label>
-          <select value={period} onChange={(e) => setPeriod(e.target.value as typeof period)} className="h-9 px-3 rounded-lg border border-border bg-card text-sm cursor-pointer outline-none focus:border-primary">
+          <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Agrupacion</label>
+          <select value={period} onChange={(e) => { setPeriod(e.target.value as typeof period); setPreset('custom'); }} className="h-9 px-3 rounded-lg border border-border bg-card text-sm cursor-pointer outline-none focus:border-primary">
             <option value="daily">Diario</option>
             <option value="weekly">Semanal</option>
             <option value="monthly">Mensual</option>
@@ -69,11 +107,11 @@ export default function ReportsPage() {
         </div>
         <div>
           <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Desde</label>
-          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="h-9 px-3 rounded-lg border border-border bg-card text-sm outline-none focus:border-primary" />
+          <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPreset('custom'); }} className="h-9 px-3 rounded-lg border border-border bg-card text-sm outline-none focus:border-primary" />
         </div>
         <div>
           <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Hasta</label>
-          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="h-9 px-3 rounded-lg border border-border bg-card text-sm outline-none focus:border-primary" />
+          <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPreset('custom'); }} className="h-9 px-3 rounded-lg border border-border bg-card text-sm outline-none focus:border-primary" />
         </div>
       </div>
 
@@ -294,8 +332,24 @@ function Kpi({ color, icon: Icon, label, value }: { color: 'emerald' | 'red' | '
 }
 
 function today(): string { return new Date().toISOString().slice(0, 10); }
+function isoDate(d: Date): string { return d.toISOString().slice(0, 10); }
 function firstDayOfMonth(): string {
   const d = new Date();
   d.setDate(1);
   return d.toISOString().slice(0, 10);
+}
+
+function PresetButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'h-8 px-3 rounded-xl text-xs font-bold transition-all',
+        active ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted',
+      )}
+    >
+      {children}
+    </button>
+  );
 }

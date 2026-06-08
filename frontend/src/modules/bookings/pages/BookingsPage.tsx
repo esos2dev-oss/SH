@@ -94,7 +94,12 @@ export default function BookingsPage() {
                   <tr key={b.id} className="border-b last:border-0 hover:bg-muted/30 cursor-pointer transition-colors" onClick={() => navigate(`/bookings/${b.id}`)}>
                     <td className="px-5 py-3 font-bold">{b.codigo}</td>
                     <td className="px-5 py-3">{b.customer.nombre}</td>
-                    <td className="px-5 py-3 text-muted-foreground">Hab. {b.room.numero} · {b.room.type}</td>
+                    <td className="px-5 py-3 text-muted-foreground">
+                      Hab. {b.room.numero} · {b.room.type}
+                      {b.vehicle_plate && (
+                        <span className="ml-2 text-[10px] font-mono font-bold bg-muted/70 text-foreground rounded px-1.5 py-0.5 align-middle">{b.vehicle_plate}</span>
+                      )}
+                    </td>
                     <td className="px-5 py-3 text-muted-foreground text-[12px]">{formatDateTime(b.fecha_entrada)}<br />{formatDateTime(b.fecha_salida)}</td>
                     <td className="px-5 py-3 font-semibold tabular-nums">{formatCurrency(b.importe_total, b.moneda)}</td>
                     <td className="px-5 py-3"><BookingStatusBadge status={b.status} /></td>

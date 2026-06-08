@@ -1,11 +1,12 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Plus, ArrowClockwise, MagnifyingGlass, UserCircle, X, EnvelopeSimple } from '@phosphor-icons/react';
+import { Plus, ArrowClockwise, MagnifyingGlass, UserCircle, EnvelopeSimple } from '@phosphor-icons/react';
 import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { EmptyState } from '../../../shared/components/ui/EmptyState';
-import { listCustomers, createCustomer, type Customer, type DocKind } from '../api/customers.api';
+import { listCustomers, type Customer } from '../api/customers.api';
+import { CustomerFormDialog } from '../components/CustomerFormDialog';
 import { formatCurrency } from '../../../shared/lib/format';
 
 const SEGMENTS = [
@@ -125,102 +126,6 @@ export default function CustomersPage() {
       </div>
 
       {showForm && <CustomerFormDialog onClose={() => setShowForm(false)} onSaved={() => { setShowForm(false); void load(); }} />}
-    </div>
-  );
-}
-
-function CustomerFormDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const [nombres, setNombres] = useState('');
-  const [apellidos, setApellidos] = useState('');
-  const [docKind, setDocKind] = useState<DocKind>('cedula');
-  const [docNumero, setDocNumero] = useState('');
-  const [email, setEmail] = useState('');
-  const [telefono, setTelefono] = useState('');
-  const [fechaNac, setFechaNac] = useState('');
-  const [nacionalidad, setNacionalidad] = useState('');
-  const [acceptsMarketing, setAcceptsMarketing] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!nombres.trim() || !apellidos.trim() || !docNumero.trim()) {
-      toast.error('Completa nombres, apellidos y documento');
-      return;
-    }
-    setSubmitting(true);
-    try {
-      await createCustomer({
-        nombres: nombres.trim(),
-        apellidos: apellidos.trim(),
-        doc_kind: docKind,
-        doc_numero: docNumero.trim(),
-        email: email.trim() || null,
-        telefono: telefono.trim() || null,
-        fecha_nacimiento: fechaNac || null,
-        nacionalidad: nacionalidad.trim() || null,
-        accepts_marketing: acceptsMarketing,
-      });
-      toast.success('Huesped creado');
-      onSaved();
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
-    } finally { setSubmitting(false); }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-card rounded-3xl border border-border shadow-xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold">Nuevo huesped</h2>
-          <button type="button" onClick={onClose} className="p-1 rounded hover:bg-muted"><X size={18} /></button>
-        </div>
-        <form onSubmit={onSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <FieldInput label="Nombres" value={nombres} onChange={setNombres} required />
-            <FieldInput label="Apellidos" value={apellidos} onChange={setApellidos} required />
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block px-1">Tipo doc</label>
-              <select value={docKind} onChange={(e) => setDocKind(e.target.value as DocKind)} className="w-full h-11 px-4 rounded-xl border border-border bg-muted/50 text-sm cursor-pointer outline-none focus:border-primary focus:bg-card">
-                <option value="cedula">Cedula</option>
-                <option value="dni">DNI</option>
-                <option value="pasaporte">Pasaporte</option>
-                <option value="licencia">Licencia</option>
-                <option value="otro">Otro</option>
-              </select>
-            </div>
-            <div className="col-span-2"><FieldInput label="Numero" value={docNumero} onChange={setDocNumero} required /></div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <FieldInput label="Email" type="email" value={email} onChange={setEmail} />
-            <FieldInput label="Telefono" value={telefono} onChange={setTelefono} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <FieldInput label="Fecha de nacimiento" type="date" value={fechaNac} onChange={setFechaNac} />
-            <FieldInput label="Nacionalidad" value={nacionalidad} onChange={setNacionalidad} />
-          </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={acceptsMarketing} onChange={(e) => setAcceptsMarketing(e.target.checked)} />
-            Acepta recibir comunicaciones de marketing
-          </label>
-          <div className="flex gap-2 pt-2">
-            <button type="submit" disabled={submitting} className="h-11 px-6 bg-primary text-primary-foreground rounded-xl font-semibold text-sm hover:bg-primary/90 shadow-lg shadow-primary/20 disabled:opacity-60">{submitting ? 'Guardando...' : 'Crear'}</button>
-            <button type="button" onClick={onClose} className="h-11 px-6 border border-border bg-card rounded-xl font-semibold text-sm hover:bg-muted">Cancelar</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function FieldInput({ label, value, onChange, type = 'text', required }: { label: string; value: string; onChange: (v: string) => void; type?: string; required?: boolean }) {
-  return (
-    <div>
-      <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block px-1">
-        {label} {required && <span className="text-destructive">*</span>}
-      </label>
-      <input type={type} value={value} onChange={(e) => onChange(e.target.value)} className="w-full h-11 px-4 rounded-xl border border-border bg-muted/50 text-sm outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 focus:bg-card" />
     </div>
   );
 }

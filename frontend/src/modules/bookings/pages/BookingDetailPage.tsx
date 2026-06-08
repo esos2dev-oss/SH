@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ArrowLeft, ClipboardText, CurrencyDollar, CheckCircle, XCircle, Check, X } from '@phosphor-icons/react';
+import { ArrowLeft, ClipboardText, CurrencyDollar, CheckCircle, XCircle, Check, X, Paperclip, Eye } from '@phosphor-icons/react';
 
 import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
@@ -11,9 +11,10 @@ import {
   type Booking,
 } from '../api/bookings.api';
 import {
-  listPayments, confirmPayment, rejectPayment,
+  listPayments, confirmPayment, rejectPayment, updatePayment,
   type PaymentPublic,
 } from '../../payments/api/payments.api';
+import { ReceiptUploader } from '../../payments/components/ReceiptUploader';
 import { useQuickPayment, useOnPaymentSaved } from '../../payments/hooks/QuickPaymentProvider';
 import { METHOD_LABELS, STATUS_COLORS, STATUS_LABELS } from '../../payments/lib/labels';
 import { formatCurrency, formatDateTime } from '../../../shared/lib/format';
@@ -28,6 +29,7 @@ export default function BookingDetailPage() {
   const [booking, setBooking] = useState<Booking | null>(null);
   const [payments, setPayments] = useState<PaymentPublic[]>([]);
   const [loading, setLoading] = useState(true);
+  const [uploadingFor, setUploadingFor] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -181,6 +183,9 @@ export default function BookingDetailPage() {
             <Field label="Salida" value={formatDateTime(booking.fecha_salida)} />
             <Field label="Origen" value={booking.origen} />
             <Field label="Creada" value={formatDateTime(booking.created_at)} />
+            {booking.vehicle_plate && (
+              <Field label="Placa vehiculo" value={<span className="font-mono font-semibold">{booking.vehicle_plate}</span>} />
+            )}
             <div className="sm:col-span-2">
               <Field label="Huesped" value={
                 <Link to={`/customers/${booking.customer.id}`} className="text-primary hover:underline">{booking.customer.nombre}</Link>
@@ -201,27 +206,58 @@ export default function BookingDetailPage() {
           )}
         </div>
         {payments.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Sin pagos registrados.</p>
+          <div className="text-center py-6 space-y-2">
+            <p className="text-sm text-muted-foreground">Sin pagos registrados.</p>
+            {booking.status !== 'cancelada' && booking.importe_pendiente > 0 && (
+              <button type="button" onClick={openQuickPay} className="inline-flex items-center gap-1.5 h-9 px-4 text-xs font-bold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90">
+                <CurrencyDollar size={14} weight="bold" /> Registrar primer pago
+              </button>
+            )}
+          </div>
         ) : (
           <div className="space-y-2">
             {payments.map((p) => (
-              <div key={p.id} className="flex items-center justify-between gap-3 p-3 rounded-xl border border-border">
-                <div className="min-w-0">
-                  <p className="font-semibold tabular-nums">{formatCurrency(Number(p.monto), p.moneda)}{p.monto_base !== null && p.moneda !== 'USD' ? <span className="ml-2 text-xs text-muted-foreground">({p.monto_base.toFixed(2)} USD)</span> : null}</p>
-                  <p className="text-[11px] text-muted-foreground uppercase tracking-wider">
-                    {METHOD_LABELS[p.method]}{p.referencia ? ` · ref ${p.referencia}` : ''}
-                  </p>
+              <div key={p.id} className="rounded-xl border border-border p-3 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold tabular-nums">{formatCurrency(Number(p.monto), p.moneda)}{p.monto_base !== null && p.moneda !== 'USD' ? <span className="ml-2 text-xs text-muted-foreground">({p.monto_base.toFixed(2)} USD)</span> : null}</p>
+                    <p className="text-[11px] text-muted-foreground uppercase tracking-wider">
+                      {METHOD_LABELS[p.method]}{p.referencia ? ` · ref ${p.referencia}` : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {p.receipt_url ? (
+                      <a href={p.receipt_url} target="_blank" rel="noreferrer" className="p-1.5 rounded hover:bg-primary/10 text-primary" title="Ver comprobante"><Eye size={14} weight="bold" /></a>
+                    ) : (
+                      <button type="button" onClick={() => setUploadingFor(p.id === uploadingFor ? null : p.id)} className="p-1.5 rounded hover:bg-muted text-muted-foreground" title="Adjuntar comprobante"><Paperclip size={14} weight="bold" /></button>
+                    )}
+                    <span className={cn('text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded', STATUS_COLORS[p.status])}>{STATUS_LABELS[p.status]}</span>
+                    {p.status === 'pending_confirmation' && (
+                      <>
+                        <button type="button" onClick={() => void handleConfirmPayment(p)} className="p-1.5 rounded hover:bg-emerald-50 text-emerald-600 dark:hover:bg-emerald-950/30" title="Confirmar"><Check size={14} weight="bold" /></button>
+                        <button type="button" onClick={() => void handleRejectPayment(p)} className="p-1.5 rounded hover:bg-red-50 text-red-600 dark:hover:bg-red-950/30" title="Rechazar"><X size={14} weight="bold" /></button>
+                      </>
+                    )}
+                    <p className="text-xs text-muted-foreground ml-2 whitespace-nowrap">{formatDateTime(p.pagado_at)}</p>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className={cn('text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded', STATUS_COLORS[p.status])}>{STATUS_LABELS[p.status]}</span>
-                  {p.status === 'pending_confirmation' && (
-                    <>
-                      <button type="button" onClick={() => void handleConfirmPayment(p)} className="p-1.5 rounded hover:bg-emerald-50 text-emerald-600 dark:hover:bg-emerald-950/30" title="Confirmar"><Check size={14} weight="bold" /></button>
-                      <button type="button" onClick={() => void handleRejectPayment(p)} className="p-1.5 rounded hover:bg-red-50 text-red-600 dark:hover:bg-red-950/30" title="Rechazar"><X size={14} weight="bold" /></button>
-                    </>
-                  )}
-                  <p className="text-xs text-muted-foreground ml-2 whitespace-nowrap">{formatDateTime(p.pagado_at)}</p>
-                </div>
+                {uploadingFor === p.id && !p.receipt_url && (
+                  <ReceiptUploader
+                    value={null}
+                    mime={null}
+                    onChange={async (url, mime) => {
+                      if (!url) return;
+                      try {
+                        await updatePayment(p.id, { receipt_url: url, receipt_mime: mime });
+                        toast.success('Comprobante adjuntado');
+                        setUploadingFor(null);
+                        await load();
+                      } catch (err) {
+                        toast.error(err instanceof ApiError ? err.message : 'Error');
+                      }
+                    }}
+                  />
+                )}
               </div>
             ))}
           </div>

@@ -57,7 +57,7 @@ const NAV: NavEntry[] = [
     children: [
       { to: '/rooms', label: 'Panel', roles: ['superadmin', 'admin', 'recepcion'] },
       { to: '/rooms/types', label: 'Tipos y tarifas', roles: ['superadmin', 'admin'] },
-      { to: '/cleaning', label: 'Limpieza' },
+      { to: '/cleaning', label: 'Limpieza', roles: ['superadmin', 'admin', 'limpieza'] },
     ],
   },
   { label: 'Reservas', to: '/bookings', icon: CalendarBlank, roles: ['superadmin', 'admin', 'recepcion', 'contabilidad'] },
