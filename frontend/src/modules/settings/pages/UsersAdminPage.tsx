@@ -49,6 +49,7 @@ export default function UsersAdminPage() {
   const [nombre, setNombre] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<Role>('recepcion');
+  const [password, setPassword] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
 
   async function loadUsers() {
@@ -79,13 +80,23 @@ export default function UsersAdminPage() {
       setFormError('Completa nombre y email');
       return;
     }
+    if (password.length < 8) {
+      setFormError('La contrasena debe tener al menos 8 caracteres');
+      return;
+    }
     setCreating(true);
     try {
-      await invokeFunction('admin-create-user', { nombre: nombre.trim(), email: email.trim(), role } as Record<string, unknown>);
-      toast.success('Usuario creado. Invitacion enviada por email.');
+      await invokeFunction('admin-create-user', {
+        nombre: nombre.trim(),
+        email: email.trim(),
+        role,
+        password,
+      } as Record<string, unknown>);
+      toast.success('Usuario creado. Ya puede iniciar sesion.');
       setNombre('');
       setEmail('');
       setRole('recepcion');
+      setPassword('');
       setShowForm(false);
       await loadUsers();
     } catch (err) {
@@ -95,8 +106,19 @@ export default function UsersAdminPage() {
     }
   }
 
-  async function onResendInvite(_id: string) {
-    toast.info('Reenvio de invitacion: usa el dashboard de Supabase mientras no implementemos la edge function.');
+  async function onResetPassword(u: UserPublic) {
+    const newPassword = window.prompt(`Nueva contrasena para ${u.nombre} (minimo 8 caracteres):`);
+    if (!newPassword) return;
+    if (newPassword.length < 8) {
+      toast.error('La contrasena debe tener al menos 8 caracteres');
+      return;
+    }
+    try {
+      await invokeFunction('admin-reset-password', { user_id: u.id, password: newPassword } as Record<string, unknown>);
+      toast.success(`Contrasena de ${u.nombre} actualizada`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo cambiar la contrasena');
+    }
   }
 
   async function onToggleActive(u: UserPublic) {
@@ -160,10 +182,10 @@ export default function UsersAdminPage() {
         <div className="bg-card rounded-3xl border border-border shadow-[0_1px_2px_0_rgb(0_0_0/0.05)] p-6">
           <h3 className="font-semibold">Nuevo usuario</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Se enviara un email con link para establecer su contrasena (valido 24h).
+            La contrasena se asigna manualmente. El usuario podra cambiarla luego desde su perfil.
           </p>
 
-          <form onSubmit={onCreate} className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+          <form onSubmit={onCreate} className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
             <div>
               <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block px-1">
                 Nombre
@@ -203,14 +225,27 @@ export default function UsersAdminPage() {
                 ))}
               </select>
             </div>
+            <div>
+              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block px-1">
+                Contrasena (minimo 8 caracteres)
+              </label>
+              <input
+                type="text"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Maria1234"
+                autoComplete="off"
+                className="w-full h-11 px-4 rounded-xl border border-border bg-muted/50 text-sm outline-none transition-all focus:border-primary focus:ring-4 focus:ring-primary/10 focus:bg-card font-mono"
+              />
+            </div>
 
             {formError && (
-              <div className="md:col-span-3 text-sm text-red-600 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl px-4 py-2.5 font-medium">
+              <div className="md:col-span-2 text-sm text-red-600 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl px-4 py-2.5 font-medium">
                 {formError}
               </div>
             )}
 
-            <div className="md:col-span-3 flex gap-2">
+            <div className="md:col-span-2 flex gap-2">
               <button
                 type="submit"
                 disabled={creating}
@@ -315,12 +350,12 @@ export default function UsersAdminPage() {
                           <div className="flex justify-end gap-1.5">
                             <button
                               type="button"
-                              onClick={() => void onResendInvite(u.id)}
-                              title="Reenviar invitacion"
+                              onClick={() => void onResetPassword(u)}
+                              title="Cambiar contrasena"
                               className="h-8 px-2.5 text-[11px] font-semibold border border-border bg-card rounded-lg hover:bg-muted transition-all flex items-center gap-1"
                             >
                               <EnvelopeSimple size={12} weight="bold" />
-                              Reenviar
+                              Cambiar pass
                             </button>
                             <button
                               type="button"
@@ -375,10 +410,10 @@ export default function UsersAdminPage() {
                     <div className="flex gap-2 mt-3">
                       <button
                         type="button"
-                        onClick={() => void onResendInvite(u.id)}
+                        onClick={() => void onResetPassword(u)}
                         className="flex-1 h-8 text-[11px] font-semibold border border-border bg-card rounded-lg hover:bg-muted transition-all"
                       >
-                        Reenviar invite
+                        Cambiar pass
                       </button>
                       <button
                         type="button"

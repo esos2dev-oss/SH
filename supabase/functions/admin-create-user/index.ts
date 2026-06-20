@@ -1,9 +1,9 @@
 // Edge Function: admin-create-user
 // POST /functions/v1/admin-create-user
-// Body: { email, nombre, role }
+// Body: { email, nombre, role, password }
 //
-// Crea un usuario en auth.users via service role + le envia invite con magic link
-// para que configure su password. El trigger handle_new_user crea profile.
+// Crea un usuario en auth.users via service role con password directa
+// (sin email de invitacion). El trigger handle_new_user crea profile.
 //
 // Solo superadmin puede invocar esta funcion (lo verificamos via has_role).
 
@@ -23,20 +23,26 @@ Deno.serve(async (req) => {
       return errorResponse('Solo superadmin', 'FORBIDDEN', 403);
     }
 
-    const { email, nombre, role } = (await req.json()) as {
-      email: string; nombre: string; role: string;
+    const { email, nombre, role, password } = (await req.json()) as {
+      email: string; nombre: string; role: string; password: string;
     };
 
     const ROLES = ['superadmin', 'admin', 'recepcion', 'limpieza', 'contabilidad'];
     if (!email || !nombre || !ROLES.includes(role)) {
       return errorResponse('Datos invalidos', 'VALIDATION_ERROR');
     }
+    if (!password || password.length < 8) {
+      return errorResponse('La contrasena debe tener al menos 8 caracteres', 'VALIDATION_ERROR');
+    }
 
     const admin = adminClient();
 
-    // inviteUserByEmail crea auth.users + envia magic link
-    const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
-      data: { nombre, role },
+    // createUser: usuario activo con password directa, sin email de confirmacion.
+    const { data, error } = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { nombre, role },
     });
     if (error) return errorResponse(error.message, 'INTERNAL_ERROR', 500);
 
