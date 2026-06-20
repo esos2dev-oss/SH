@@ -20,6 +20,7 @@ import {
   Sun,
   Moon,
   ShieldCheck,
+  Question,
   type IconProps,
 } from '@phosphor-icons/react';
 import { useAuth, type Role } from '../../../contexts/AuthContext';
@@ -304,6 +305,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           {isDark ? <Sun size={18} weight="duotone" /> : <Moon size={18} weight="duotone" />}
           {isDark ? 'Modo claro' : 'Modo oscuro'}
         </button>
+
+        <NavLinkItem to="/ayuda" icon={Question} label="Ayuda" onNavigate={onNavigate} />
 
         {(user.role === 'superadmin' || user.role === 'admin') && (
           <NavLinkItem to="/settings" icon={Gear} label="Configuracion" onNavigate={onNavigate} />

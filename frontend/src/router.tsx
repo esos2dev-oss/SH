@@ -47,6 +47,7 @@ const ProfilePage = lazy(() => import('./modules/profile/pages/ProfilePage'));
 const UsersAdminPage = lazy(() => import('./modules/settings/pages/UsersAdminPage'));
 const AuditLogPage = lazy(() => import('./modules/settings/pages/AuditLogPage'));
 const SettingsHubPage = lazy(() => import('./modules/settings/pages/SettingsHubPage'));
+const HelpPage = lazy(() => import('./modules/help/pages/HelpPage'));
 
 const NotFoundPage = lazy(() => import('./shared/pages/NotFoundPage'));
 
@@ -148,6 +149,9 @@ export const router = createBrowserRouter(
           path: 'reports',
           element: <RoleRoute allowed={['superadmin', 'admin', 'contabilidad']}><Suspended><ReportsPage /></Suspended></RoleRoute>,
         },
+
+        // Ayuda — accesible para todos los roles autenticados
+        { path: 'ayuda', element: <Suspended><HelpPage /></Suspended> },
 
         // Profile + admin
         { path: 'profile', element: <Suspended><ProfilePage /></Suspended> },
