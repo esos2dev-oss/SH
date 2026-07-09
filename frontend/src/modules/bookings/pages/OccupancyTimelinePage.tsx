@@ -69,7 +69,6 @@ export default function OccupancyTimelinePage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<BookingStatus | ''>('');
-  const [filterPlanta, setFilterPlanta] = useState<string>('');
   const [dragInfo, setDragInfo] = useState<{ bookingId: number; sourceRoomId: number } | null>(null);
 
   const startDate = useMemo(() => anchor, [anchor]);
@@ -113,16 +112,7 @@ export default function OccupancyTimelinePage() {
 
   const dayList = useMemo(() => Array.from({ length: days }, (_, i) => addDays(startDate, i)), [startDate, days]);
 
-  const plantas = useMemo(() => {
-    const s = new Set<string>();
-    for (const r of rooms) if (r.planta) s.add(r.planta);
-    return Array.from(s).sort();
-  }, [rooms]);
-
-  const filteredRooms = useMemo(() => {
-    if (!filterPlanta) return rooms;
-    return rooms.filter((r) => r.planta === filterPlanta);
-  }, [rooms, filterPlanta]);
+  const filteredRooms = rooms;
 
   const cells: TimelineCell[] = useMemo(() => {
     return filteredRooms.map((room) => ({
@@ -182,12 +172,11 @@ export default function OccupancyTimelinePage() {
             <option value="finalizada">Finalizada</option>
           </SelectNative>
         </div>
-        {plantas.length > 0 && (
+        {false && (
           <div>
             <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Planta</label>
-            <SelectNative value={filterPlanta} onChange={(e) => setFilterPlanta(e.target.value)} className="w-32">
+            <SelectNative value={''} onChange={() => {}} className="w-32">
               <option value="">Todas</option>
-              {plantas.map((p) => <option key={p} value={p}>{p}</option>)}
             </SelectNative>
           </div>
         )}
@@ -280,7 +269,7 @@ function TimelineRow({ cell, bookings, navigate, dragInfo, onDragStart, onDragEn
       <td className="px-3 py-2 align-top sticky left-0 bg-card">
         <p className="font-bold text-sm">Hab. {cell.room.numero}</p>
         <p className="text-[10px] text-muted-foreground">{cell.room.room_type.nombre}</p>
-        {cell.room.planta && <p className="text-[10px] text-muted-foreground">Planta {cell.room.planta}</p>}
+{null}
       </td>
       {slots.map((slot, i) => {
         const group = groups.find((g) => g.start === i);

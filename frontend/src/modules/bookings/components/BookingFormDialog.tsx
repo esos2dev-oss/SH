@@ -57,7 +57,6 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
   const [fechaEntrada, setFechaEntrada] = useState('');
   const [fechaSalida, setFechaSalida] = useState('');
   const [huespedes, setHuespedes] = useState(1);
-  const [bookingPlaca, setBookingPlaca] = useState('');
   const [available, setAvailable] = useState<AvailabilityRoom[]>([]);
   const [roomId, setRoomId] = useState<number | ''>('');
   const [roomLoading, setRoomLoading] = useState(false);
@@ -93,13 +92,6 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
     }, 250);
     return () => { cancelled = true; clearTimeout(t); };
   }, [customerSearch, customerMode]);
-
-  // Cuando se selecciona cliente existente, copiar su placa por defecto a la reserva
-  useEffect(() => {
-    if (selectedCustomer?.vehicle_plate && !bookingPlaca) {
-      setBookingPlaca(selectedCustomer.vehicle_plate);
-    }
-  }, [selectedCustomer]);
 
   // Buscar disponibilidad al cambiar fechas/huespedes.
   // El flag `cancelled` evita que una respuesta vieja sobreescriba una nueva
@@ -198,7 +190,6 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
         huespedes,
         descuento_pct: descuentoPct || undefined,
         descuento_monto: descuentoMonto || undefined,
-        vehicle_plate: bookingPlaca.trim().toUpperCase() || null,
         notas: notas.trim() || null,
       });
 
@@ -289,7 +280,7 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
                         {selectedCustomer.telefono && ` · ${selectedCustomer.telefono}`}
                       </p>
                     </div>
-                    <button type="button" onClick={() => { setSelectedCustomer(null); setBookingPlaca(''); }} className="text-xs text-muted-foreground hover:text-foreground">Cambiar</button>
+                    <button type="button" onClick={() => setSelectedCustomer(null)} className="text-xs text-muted-foreground hover:text-foreground">Cambiar</button>
                   </div>
                 ) : (
                   <div className="max-h-40 overflow-y-auto rounded-xl border border-border divide-y">
@@ -372,12 +363,9 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
                 <input type="date" value={fechaSalida} onChange={(e) => setFechaSalida(e.target.value)} className="w-full h-11 px-4 rounded-xl border border-border bg-muted/50 text-sm" required />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3 mt-3">
-              <div>
-                <Label>Huespedes</Label>
-                <input type="number" min={1} value={huespedes} onChange={(e) => setHuespedes(Math.max(1, Number(e.target.value)))} className="w-full h-11 px-4 rounded-xl border border-border bg-muted/50 text-sm" />
-              </div>
-              <Field label="Placa de vehiculo (esta estancia)" value={bookingPlaca} onChange={setBookingPlaca} placeholder={selectedCustomer?.vehicle_plate ?? 'Opcional'} />
+            <div className="mt-3">
+              <Label>Huespedes</Label>
+              <input type="number" min={1} value={huespedes} onChange={(e) => setHuespedes(Math.max(1, Number(e.target.value)))} className="w-full h-11 px-4 rounded-xl border border-border bg-muted/50 text-sm" />
             </div>
             {huespedes > 1 && (
               <p className="text-[11px] text-muted-foreground mt-2 pl-1">
@@ -417,7 +405,7 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
                         return (
                           <button key={r.id} type="button" onClick={() => setRoomId(r.id)} className={`text-left p-3 rounded-xl border transition-all ${roomId === r.id ? 'border-primary bg-primary/5 ring-2 ring-primary/30' : 'border-border bg-card hover:bg-muted/30'}`}>
                             <p className="font-bold">Hab. {r.numero}</p>
-                            <p className="text-[11px] text-muted-foreground">{r.room_type}{r.planta ? ` · planta ${r.planta}` : ''}</p>
+                            <p className="text-[11px] text-muted-foreground">{r.room_type}</p>
                             <p className="text-xs font-semibold mt-1">{formatCurrency(tarifa)} / {period}</p>
                           </button>
                         );

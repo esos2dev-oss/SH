@@ -137,10 +137,7 @@ function RoomTile({ room, onMarkClean, onReport, tab }: { room: Room; onMarkClea
           {tab === 'limpieza' ? 'Por limpiar' : 'Mantenimiento'}
         </span>
       </div>
-      <p className="text-xs text-muted-foreground">
-        {room.room_type.nombre}
-        {room.planta && ` · Planta ${room.planta}`}
-      </p>
+      <p className="text-xs text-muted-foreground">{room.room_type.nombre}</p>
       {room.notas && (
         <p className="text-[11px] text-muted-foreground mt-2 italic line-clamp-2">{room.notas}</p>
       )}

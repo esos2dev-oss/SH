@@ -11,6 +11,9 @@ export interface RoomType {
   tarifa_dia: number;
   tarifa_semana: number | null;
   tarifa_mes: number | null;
+  tarifa_dia_bs: number | null;
+  tarifa_semana_bs: number | null;
+  tarifa_mes_bs: number | null;
   moneda: string;
   amenities: string[];
   active: boolean;
@@ -165,6 +168,9 @@ export async function createRoomType(data: Partial<RoomType> & { nombre: string;
     tarifa_dia: data.tarifa_dia,
     tarifa_semana: data.tarifa_semana ?? null,
     tarifa_mes: data.tarifa_mes ?? null,
+    tarifa_dia_bs: data.tarifa_dia_bs ?? null,
+    tarifa_semana_bs: data.tarifa_semana_bs ?? null,
+    tarifa_mes_bs: data.tarifa_mes_bs ?? null,
     moneda: data.moneda ?? 'USD',
     amenities: data.amenities ?? [],
     active: data.active ?? true,
@@ -175,7 +181,7 @@ export async function createRoomType(data: Partial<RoomType> & { nombre: string;
 
 export async function updateRoomType(id: number, data: Partial<RoomType>): Promise<RoomType> {
   const patch: Record<string, unknown> = {};
-  for (const k of ['nombre', 'slug', 'descripcion', 'capacidad', 'tarifa_dia', 'tarifa_semana', 'tarifa_mes', 'moneda', 'amenities', 'active'] as const) {
+  for (const k of ['nombre', 'slug', 'descripcion', 'capacidad', 'tarifa_dia', 'tarifa_semana', 'tarifa_mes', 'tarifa_dia_bs', 'tarifa_semana_bs', 'tarifa_mes_bs', 'moneda', 'amenities', 'active'] as const) {
     if ((data as Record<string, unknown>)[k] !== undefined) patch[k] = (data as Record<string, unknown>)[k];
   }
   const { data: row, error } = await supabase.from('room_types').update(patch).eq('id', id).select('*').single();

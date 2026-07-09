@@ -84,7 +84,7 @@ const SECTIONS: Section[] = [
     body: (
       <>
         <h3>Panel</h3>
-        <p>Vista grid con todas las habitaciones. Cada tarjeta muestra numero, tipo, estado (color) y planta.</p>
+        <p>Vista grid con todas las cabanas. Cada tarjeta muestra numero, tipo y estado (color).</p>
         <p><b>Estados:</b></p>
         <ul>
           <li><b className="text-emerald-600">disponible</b> — lista para nuevo huesped</li>
@@ -93,12 +93,12 @@ const SECTIONS: Section[] = [
           <li><b className="text-orange-600">mantenimiento</b> — falla reportada</li>
           <li><b className="text-muted-foreground">fuera_servicio</b> — no disponible</li>
         </ul>
-        <p>Click sobre una habitacion → cambiar estado. Editar (admin/superadmin): numero, tipo, planta, foto, notas.</p>
+        <p>Click sobre una cabana → cambiar estado. Editar (admin/superadmin): numero, tipo, foto, notas.</p>
         <p><b>Filtros:</b> por estado y busqueda por numero.</p>
 
         <h3>Tipos y tarifas</h3>
-        <p>Solo admin/superadmin. Lista de tipos (sencilla/doble/suite) con tarifas dia/semana/mes y capacidad.</p>
-        <p>Crear: nombre, slug interno, descripcion, capacidad, tarifa por periodo, moneda, amenities.</p>
+        <p>Solo admin/superadmin. Lista de tipos de cabana (matrimonial sencilla/grande/doble y cabanas de 3 a 7 personas) con tarifas dia/semana/mes y capacidad.</p>
+        <p>Crear: nombre, slug interno, descripcion, capacidad, tarifa en <b>USD</b> y opcional en <b>Bs</b> por cada periodo, moneda, amenities. Si no rellenas el precio en Bs, el sistema convierte automaticamente usando la tasa BCV del dia.</p>
         <p>Editar: cambia precios sin afectar reservas confirmadas (cada reserva guarda su tarifa aplicada).</p>
 
         <h3>Limpieza</h3>
@@ -129,7 +129,6 @@ const SECTIONS: Section[] = [
           <li><b>Habitacion:</b> elegir periodo (dia/semana/mes) + rango → aparecen solo las disponibles. Tarifa se calcula sola.</li>
           <li><b>Huespedes:</b> no puede exceder capacidad.</li>
           <li><b>Descuento:</b> opcional, % o monto fijo.</li>
-          <li><b>Placa del vehiculo:</b> opcional.</li>
           <li><b>Pago inicial:</b> opcional, queda enlazado a la reserva.</li>
           <li><b>Notas.</b></li>
         </ol>

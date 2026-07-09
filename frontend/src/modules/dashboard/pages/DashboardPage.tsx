@@ -350,7 +350,6 @@ function CleaningCard({ item }: { item: CleaningPending }) {
         <p className="text-sm font-semibold">Hab. {item.numero}</p>
         <p className="text-[11px] text-muted-foreground tabular-nums">{Math.floor(item.minutes_in_state / 60) > 0 ? `${Math.floor(item.minutes_in_state / 60)}h ` : ''}{item.minutes_in_state % 60}m</p>
       </div>
-      {item.planta && <p className="text-[11px] text-muted-foreground">Planta {item.planta}</p>}
     </Link>
   );
 }

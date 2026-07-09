@@ -68,15 +68,15 @@ export function CommandPalette({ open, onClose }: Props) {
       try {
         const like = `%${trimmed}%`;
         const [rooms, bookings, customers] = await Promise.all([
-          supabase.from('rooms').select('id, numero, planta, status').ilike('numero', like).limit(5),
+          supabase.from('rooms').select('id, numero, status').ilike('numero', like).limit(5),
           supabase.from('bookings_with_relations').select('id, codigo, customer, room, status').ilike('codigo', like).limit(5),
           supabase.from('customers').select('id, nombres, apellidos, doc_numero, telefono')
             .or(`nombres.ilike.${like},apellidos.ilike.${like},doc_numero.ilike.${like},telefono.ilike.${like}`)
             .limit(5),
         ]);
         const hits: SearchHit[] = [];
-        for (const r of (rooms.data ?? []) as Array<{ id: number; numero: string; planta: string | null; status: string }>) {
-          hits.push({ kind: 'room', id: r.id, label: `Habitacion ${r.numero}`, hint: `${r.planta ? 'Planta ' + r.planta + ' · ' : ''}${r.status}`, url: '/rooms' });
+        for (const r of (rooms.data ?? []) as Array<{ id: number; numero: string; status: string }>) {
+          hits.push({ kind: 'room', id: r.id, label: `Cabana ${r.numero}`, hint: r.status, url: '/rooms' });
         }
         for (const b of (bookings.data ?? []) as Array<{ id: number; codigo: string; customer: { nombre: string }; room: { numero: string }; status: string }>) {
           hits.push({ kind: 'booking', id: b.id, label: b.codigo, hint: `${b.customer.nombre} · Hab ${b.room.numero} · ${b.status}`, url: `/bookings/${b.id}` });

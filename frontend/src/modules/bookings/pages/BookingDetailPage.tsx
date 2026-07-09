@@ -183,9 +183,6 @@ export default function BookingDetailPage() {
             <Field label="Salida" value={formatDateTime(booking.fecha_salida)} />
             <Field label="Origen" value={booking.origen} />
             <Field label="Creada" value={formatDateTime(booking.created_at)} />
-            {booking.vehicle_plate && (
-              <Field label="Placa vehiculo" value={<span className="font-mono font-semibold">{booking.vehicle_plate}</span>} />
-            )}
             <div className="sm:col-span-2">
               <Field label="Huesped" value={
                 <Link to={`/customers/${booking.customer.id}`} className="text-primary hover:underline">{booking.customer.nombre}</Link>
