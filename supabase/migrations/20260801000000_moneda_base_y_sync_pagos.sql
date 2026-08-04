@@ -54,11 +54,26 @@ BEGIN
         FROM public.exchange_rates
         WHERE fecha <= v_fecha AND bs_per_usd IS NOT NULL
         ORDER BY fecha DESC LIMIT 1;
+        -- Cobros anteriores a la primera tasa registrada (hay pagos desde el
+        -- 15/05 y la tasa mas antigua es del 23/05): usamos la mas antigua
+        -- disponible en vez de abortar. Solo afecta al backfill historico.
+        IF v_rate IS NULL THEN
+            SELECT bs_per_usd INTO v_rate
+            FROM public.exchange_rates
+            WHERE bs_per_usd IS NOT NULL
+            ORDER BY fecha ASC LIMIT 1;
+        END IF;
     ELSIF v_moneda = 'EUR' THEN
         SELECT eur_per_usd INTO v_rate
         FROM public.exchange_rates
         WHERE fecha <= v_fecha AND eur_per_usd IS NOT NULL
         ORDER BY fecha DESC LIMIT 1;
+        IF v_rate IS NULL THEN
+            SELECT eur_per_usd INTO v_rate
+            FROM public.exchange_rates
+            WHERE eur_per_usd IS NOT NULL
+            ORDER BY fecha ASC LIMIT 1;
+        END IF;
     ELSE
         RETURN NULL;
     END IF;
