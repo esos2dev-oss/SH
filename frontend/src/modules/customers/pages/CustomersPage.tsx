@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
+import { errorMessage } from '../../../shared/lib/errors';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Plus, ArrowClockwise, MagnifyingGlass, UserCircle, EnvelopeSimple } from '@phosphor-icons/react';
-import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { EmptyState } from '../../../shared/components/ui/EmptyState';
 import { listCustomers, type Customer } from '../api/customers.api';
 import { CustomerFormDialog } from '../components/CustomerFormDialog';
-import { formatCurrency } from '../../../shared/lib/format';
+import { formatBase } from '../../../shared/lib/format';
 
 const SEGMENTS = [
   { value: '', label: 'Todos' },
@@ -37,7 +37,7 @@ export default function CustomersPage() {
       setItems(r.data);
       setTotal(r.pagination.total);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     } finally { setLoading(false); }
   }
   useEffect(() => { void load(); }, [segment]);
@@ -111,7 +111,7 @@ export default function CustomersPage() {
                       {c.telefono && <p>{c.telefono}</p>}
                     </td>
                     <td className="px-5 py-3 font-semibold tabular-nums">{c.total_estancias}</td>
-                    <td className="px-5 py-3 font-semibold tabular-nums">{formatCurrency(c.total_gastado)}</td>
+                    <td className="px-5 py-3 font-semibold tabular-nums">{formatBase(c.total_gastado)}</td>
                     <td className="px-5 py-3">
                       {c.accepts_marketing
                         ? <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700 dark:text-emerald-400"><EnvelopeSimple size={12} weight="duotone" /> Si</span>

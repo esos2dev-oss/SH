@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { errorMessage } from '../../../shared/lib/errors';
 import { toast } from 'sonner';
 import { Plus, ArrowClockwise, X } from '@phosphor-icons/react';
-import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { EmptyState } from '../../../shared/components/ui/EmptyState';
 import { listRoomTypes, createRoomType, updateRoomType, deleteRoomType, type RoomType } from '../api/rooms.api';
@@ -20,7 +20,7 @@ export default function RoomTypesPage() {
     try {
       setItems(await listRoomTypes());
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     } finally { setLoading(false); }
   }
   useEffect(() => { void load(); }, []);
@@ -32,7 +32,7 @@ export default function RoomTypesPage() {
       toast.success('Tipo desactivado');
       await load();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     }
   }
 
@@ -125,7 +125,7 @@ function RoomTypeFormDialog({ rt, onClose, onSaved }: { rt: RoomType | null; onC
       toast.success(rt ? 'Tipo actualizado' : 'Tipo creado');
       onSaved();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     } finally { setSubmitting(false); }
   }
 

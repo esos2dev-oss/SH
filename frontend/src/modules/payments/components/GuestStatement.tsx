@@ -2,10 +2,10 @@
 // Muestra resumen total arriba, y por cada reserva: cargos + pagos + saldo.
 
 import { useCallback, useEffect, useState } from 'react';
+import { errorMessage } from '../../../shared/lib/errors';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { ArrowSquareOut, WhatsappLogo } from '@phosphor-icons/react';
-import { ApiError } from '../../../shared/api/client';
 import {
   getCustomerStatement,
   type CustomerStatement,
@@ -31,7 +31,7 @@ export function GuestStatement({ customerId }: Props) {
       const r = await getCustomerStatement(customerId);
       setData(r);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'No se pudo cargar el estado de cuenta');
+      toast.error(errorMessage(err, 'No se pudo cargar el estado de cuenta'));
     } finally { setLoading(false); }
   }, [customerId]);
 

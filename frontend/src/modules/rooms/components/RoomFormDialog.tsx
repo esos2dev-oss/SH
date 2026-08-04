@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { errorMessage } from '../../../shared/lib/errors';
 import { toast } from 'sonner';
 import { X } from '@phosphor-icons/react';
-import { ApiError } from '../../../shared/api/client';
 import { createRoom, updateRoom, listRoomTypes, type Room, type RoomType, type RoomStatus } from '../api/rooms.api';
 
 interface Props {
@@ -46,7 +46,7 @@ export function RoomFormDialog({ room, onClose, onSaved }: Props) {
       toast.success(room ? 'Habitacion actualizada' : 'Habitacion creada');
       onSaved();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     } finally {
       setSubmitting(false);
     }

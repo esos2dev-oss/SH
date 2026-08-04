@@ -2,10 +2,10 @@
 // hasta cobrar o ofrece registrar el pago en el flujo.
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { errorMessage } from '../../../shared/lib/errors';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { ArrowLeft, CheckCircle, Eye, CurrencyCircleDollar, Broom } from '@phosphor-icons/react';
-import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { getBooking, type Booking } from '../../bookings/api/bookings.api';
 import { getCheckIn, checkOut, documentoUrl, type CheckIn } from '../api/check-ins.api';
@@ -30,7 +30,7 @@ export default function CheckOutPage() {
       setBooking(b);
       setCheckIn(ci);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     }
   }, [bookingId]);
 
@@ -66,7 +66,7 @@ export default function CheckOutPage() {
       const r = await documentoUrl(Number(bookingId));
       window.open(r.url, '_blank');
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     }
   }
 
@@ -90,7 +90,7 @@ export default function CheckOutPage() {
       }
       navigate(`/bookings/${booking.id}`);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     } finally { setSubmitting(false); }
   }
 

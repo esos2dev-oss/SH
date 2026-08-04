@@ -30,10 +30,21 @@ Deno.serve(async (req) => {
     if (!body.booking_id) return errorResponse('booking_id requerido', 'VALIDATION_ERROR');
 
     const { data: booking, error: bErr } = await client
-      .from('bookings').select('id, status, room_id').eq('id', body.booking_id).single();
+      .from('bookings').select('id, status, room_id, fecha_entrada').eq('id', body.booking_id).single();
     if (bErr || !booking) return errorResponse('Reserva no encontrada', 'NOT_FOUND', 404);
     if (!['pendiente', 'confirmada'].includes(booking.status)) {
       return errorResponse('La reserva no esta en estado valido para check-in', 'CONFLICT', 409);
+    }
+
+    // Ventana de check-in. Sin esto se podia hacer check-in de una reserva que
+    // llegaba en mes y medio, lo que ponia la habitacion en 'ocupada' e
+    // inflaba la ocupacion del dia. La ventana se configura en `settings`
+    // (checkin.ventana_horas_antes / _despues).
+    const { data: bloqueo, error: wErr } = await client
+      .rpc('checkin_window_violation', { p_booking_id: booking.id });
+    if (wErr) return errorResponse(wErr.message, 'INTERNAL_ERROR', 500);
+    if (bloqueo) {
+      return errorResponse(bloqueo as string, 'CHECKIN_WINDOW', 409);
     }
 
     // 1) Crear check_in

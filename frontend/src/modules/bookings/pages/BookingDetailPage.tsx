@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ArrowLeft, ClipboardText, CurrencyDollar, CheckCircle, XCircle, Check, X, Paperclip, Eye } from '@phosphor-icons/react';
+import { ArrowLeft, ClipboardText, CurrencyDollar, CheckCircle, XCircle, Check, X, Paperclip, Eye, UserMinus, Warning } from '@phosphor-icons/react';
 
-import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { BookingStatusBadge, PaymentStatusBadge } from '../../../shared/components/ui/StatusBadge';
 import {
   getBooking, confirmBooking, cancelBooking, noShowBooking,
-  type Booking,
+  checkinBlockReason, getRefundExposure,
+  type Booking, type RefundExposure,
 } from '../api/bookings.api';
+import { errorMessage } from '../../../shared/lib/errors';
 import {
   listPayments, confirmPayment, rejectPayment, updatePayment,
   type PaymentPublic,
@@ -30,20 +31,32 @@ export default function BookingDetailPage() {
   const [payments, setPayments] = useState<PaymentPublic[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploadingFor, setUploadingFor] = useState<number | null>(null);
+  const [checkinBlock, setCheckinBlock] = useState<string | null>(null);
+  const [refund, setRefund] = useState<RefundExposure | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     try {
       const bookingId = Number(id);
-      const [b, ps] = await Promise.all([
+      const [b, ps, block] = await Promise.all([
         getBooking(bookingId),
         listPayments({ booking_id: bookingId, limit: 50 }),
+        // Motivo por el que no se puede hacer check-in ahora (ventana horaria).
+        checkinBlockReason(bookingId).catch(() => null),
       ]);
       setBooking(b);
       setPayments(ps.data);
+      setCheckinBlock(block);
+      // Si la reserva esta cancelada y quedan cobros confirmados, hay dinero
+      // del huesped en caja que nadie ha devuelto (bug 19).
+      if (b.status === 'cancelada') {
+        setRefund(await getRefundExposure(bookingId).catch(() => null));
+      } else {
+        setRefund(null);
+      }
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err, 'No se pudo cargar la reserva'));
     } finally { setLoading(false); }
   }, [id]);
 
@@ -55,6 +68,20 @@ export default function BookingDetailPage() {
     try {
       if (action === 'confirm') await confirmBooking(booking.id);
       else if (action === 'cancel') {
+        // Avisar del dinero cobrado ANTES de cancelar, no despues.
+        const exposure = await getRefundExposure(booking.id).catch(() => null);
+        if (exposure && exposure.count > 0) {
+          const detalle = exposure.por_moneda
+            .map((m) => formatCurrency(m.total, m.moneda))
+            .join(' + ');
+          const ok = await dialog.confirm({
+            title: 'Hay dinero cobrado sin devolver',
+            message: `Esta reserva tiene ${exposure.count} pago${exposure.count > 1 ? 's' : ''} confirmado${exposure.count > 1 ? 's' : ''} por ${detalle}. Al cancelar dejaran de contar en el cierre de caja y quedaran marcados como pendientes de devolucion. Continuar?`,
+            confirmLabel: 'Cancelar y gestionar devolucion',
+            danger: true,
+          });
+          if (!ok) return;
+        }
         const reason = await dialog.prompt({
           title: 'Cancelar reserva?',
           message: 'Indica el motivo de la cancelacion. Quedara registrado en el historial.',
@@ -78,7 +105,7 @@ export default function BookingDetailPage() {
       toast.success('Estado actualizado');
       await load();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     }
   }
 
@@ -88,7 +115,7 @@ export default function BookingDetailPage() {
       toast.success('Pago confirmado');
       await load();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     }
   }
 
@@ -107,7 +134,7 @@ export default function BookingDetailPage() {
       toast.success('Pago rechazado');
       await load();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     }
   }
 
@@ -148,8 +175,21 @@ export default function BookingDetailPage() {
             {(booking.status === 'pendiente' || booking.status === 'confirmada') && (
               <button type="button" onClick={() => void transition('cancel')} className="h-9 px-3 text-xs font-semibold border border-red-200 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400 flex items-center gap-1.5"><XCircle size={12} weight="bold" /> Cancelar</button>
             )}
+            {/* El boton de no-show existia en la API pero no habia forma de
+                invocarlo desde la UI, asi que nadie cerraba reservas vencidas. */}
+            {(booking.status === 'pendiente' || booking.status === 'confirmada') && (
+              <button type="button" onClick={() => void transition('no-show')} className="h-9 px-3 text-xs font-semibold border border-orange-200 bg-orange-50 text-orange-700 rounded-lg hover:bg-orange-100 dark:border-orange-800 dark:bg-orange-950/30 dark:text-orange-400 flex items-center gap-1.5"><UserMinus size={12} weight="bold" /> No-show</button>
+            )}
             {booking.status === 'confirmada' && (
-              <button type="button" onClick={() => navigate(`/check-ins/new/${booking.id}`)} className="h-9 px-3 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 shadow-sm shadow-emerald-600/20 flex items-center gap-1.5"><ClipboardText size={12} weight="bold" /> Hacer check-in</button>
+              <button
+                type="button"
+                onClick={() => navigate(`/check-ins/new/${booking.id}`)}
+                disabled={!!checkinBlock}
+                title={checkinBlock ?? 'Hacer check-in'}
+                className="h-9 px-3 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 shadow-sm shadow-emerald-600/20 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ClipboardText size={12} weight="bold" /> Hacer check-in
+              </button>
             )}
             {booking.status === 'en_curso' && (
               <button type="button" onClick={() => navigate(`/check-ins/${booking.id}`)} className="h-9 px-3 text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm shadow-blue-600/20 flex items-center gap-1.5">Check-out</button>
@@ -157,6 +197,33 @@ export default function BookingDetailPage() {
           </>
         }
       />
+
+      {/* Dinero cobrado de una reserva cancelada: antes se quedaba ahi
+          mostrando "Pagado 112,00" sin ningun aviso ni gestion. */}
+      {booking.status === 'cancelada' && refund && refund.count > 0 && (
+        <div className="flex items-start gap-3 rounded-2xl border border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/30 p-4">
+          <Warning size={20} weight="duotone" className="shrink-0 mt-0.5 text-red-600 dark:text-red-400" />
+          <div className="text-sm">
+            <p className="font-bold text-red-800 dark:text-red-300">Devolucion pendiente</p>
+            <p className="text-red-700 dark:text-red-300/90">
+              La reserva esta cancelada pero el hotel conserva{' '}
+              <strong>
+                {refund.por_moneda.map((m) => formatCurrency(m.total, m.moneda)).join(' + ')}
+              </strong>{' '}
+              de {refund.count} cobro{refund.count > 1 ? 's' : ''} confirmado{refund.count > 1 ? 's' : ''}.
+              Ya no cuentan en el cierre de caja. Gestiona la devolucion y registra el reverso.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Por que no se puede hacer check-in todavia (bug 11). */}
+      {booking.status === 'confirmada' && checkinBlock && (
+        <div className="flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 p-4">
+          <Warning size={20} weight="duotone" className="shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+          <p className="text-sm text-amber-800 dark:text-amber-300">{checkinBlock}</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Resumen importes */}
@@ -253,7 +320,7 @@ export default function BookingDetailPage() {
                         setUploadingFor(null);
                         await load();
                       } catch (err) {
-                        toast.error(err instanceof ApiError ? err.message : 'Error');
+                        toast.error(errorMessage(err));
                       }
                     }}
                   />

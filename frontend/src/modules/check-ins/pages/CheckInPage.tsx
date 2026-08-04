@@ -1,10 +1,10 @@
 // Flow de check-in expres. Si hay saldo pendiente, ofrece cobrar antes con QuickPayment.
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { errorMessage } from '../../../shared/lib/errors';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { ClipboardText, ArrowLeft, FileImage, FilePdf, CurrencyCircleDollar, Users, Plus, Trash } from '@phosphor-icons/react';
-import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { SignaturePad } from '../../../shared/components/ui/signature-pad';
 import { getBooking, type Booking } from '../../bookings/api/bookings.api';
@@ -33,7 +33,7 @@ export default function CheckInPage() {
       const b = await getBooking(Number(bookingId));
       setBooking(b);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     }
   }, [bookingId]);
 
@@ -96,7 +96,7 @@ export default function CheckInPage() {
       toast.success('Check-in registrado. Habitacion ocupada.');
       navigate(`/bookings/${booking.id}`);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     } finally { setSubmitting(false); }
   }
 

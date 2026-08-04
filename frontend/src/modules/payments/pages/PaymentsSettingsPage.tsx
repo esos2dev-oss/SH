@@ -2,18 +2,19 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { CurrencyDollar, DeviceMobile, FloppyDisk } from '@phosphor-icons/react';
+import { CurrencyDollar, DeviceMobile, FloppyDisk, ArrowsClockwise, WarningCircle } from '@phosphor-icons/react';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { Button } from '../../../shared/components/ui/button';
 import { Input } from '../../../shared/components/ui/input';
 import { Label } from '../../../shared/components/ui/label';
 import { SelectNative } from '../../../shared/components/ui/select-native';
-import { ApiError } from '../../../shared/api/client';
+import { errorMessage } from '../../../shared/lib/errors';
 import { supabase } from '../../../shared/lib/supabase';
 import {
-  getCurrentRate, upsertRate, listRates,
+  getCurrentRate, upsertRate, listRates, syncBcvRate,
   type ExchangeRate,
 } from '../api/payments.api';
+import { isRateStale, rateAgeDays, type RateSnapshot } from '../lib/currency';
 import { VENEZUELAN_BANKS } from '../lib/labels';
 import { formatDate } from '../../../shared/lib/format';
 
@@ -61,7 +62,9 @@ function ExchangeRateCard() {
   const [current, setCurrent] = useState<ExchangeRate | null>(null);
   const [history, setHistory] = useState<ExchangeRate[]>([]);
   const [input, setInput] = useState('');
+  const [inputEur, setInputEur] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -69,7 +72,7 @@ function ExchangeRateCard() {
       setCurrent(c);
       setHistory(h);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err, 'No se pudo cargar la tasa'));
     }
   }, []);
 
@@ -78,34 +81,78 @@ function ExchangeRateCard() {
   async function handleSave() {
     const v = Number(input);
     if (!Number.isFinite(v) || v <= 0) {
-      toast.error('Tasa invalida');
+      toast.error('Introduce una tasa Bs/USD valida (mayor que 0)');
+      return;
+    }
+    const eur = inputEur.trim() ? Number(inputEur) : undefined;
+    if (eur !== undefined && (!Number.isFinite(eur) || eur <= 0)) {
+      toast.error('La tasa EUR/USD no es valida');
       return;
     }
     setSubmitting(true);
     try {
-      await upsertRate({ bs_per_usd: v, source: 'manual' });
+      await upsertRate({ bs_per_usd: v, eur_per_usd: eur, source: 'manual' });
       toast.success('Tasa actualizada');
       setInput('');
+      setInputEur('');
       await load();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err, 'No se pudo guardar la tasa'));
     } finally { setSubmitting(false); }
   }
 
+  // Sincronizacion real contra el BCV. Antes no existia ningun mecanismo
+  // automatico: la tasa solo cambiaba si alguien la tecleaba (bug 15).
+  async function handleSync() {
+    setSyncing(true);
+    try {
+      const r = await syncBcvRate();
+      toast.success(`Tasa BCV sincronizada: ${Number(r.bs_per_usd).toFixed(2)} Bs/USD`);
+      await load();
+    } catch (err) {
+      toast.error(errorMessage(err, 'No se pudo sincronizar con el BCV'));
+    } finally { setSyncing(false); }
+  }
+
+  const stale = isRateStale(current as RateSnapshot | null);
+  const age = rateAgeDays(current as RateSnapshot | null);
+
   return (
     <div className="bg-card border border-border rounded-2xl p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <CurrencyDollar size={18} weight="duotone" className="text-primary" />
-        <h2 className="font-bold">Tasa de cambio Bs/USD (BCV)</h2>
+      <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <CurrencyDollar size={18} weight="duotone" className="text-primary" />
+          <h2 className="font-bold">Tasa de cambio (BCV)</h2>
+        </div>
+        <Button type="button" variant="outline" onClick={() => void handleSync()} disabled={syncing}>
+          <ArrowsClockwise size={14} weight="bold" className={`mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
+          {syncing ? 'Sincronizando...' : 'Sincronizar BCV ahora'}
+        </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+      {stale && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/40 p-3 mb-4">
+          <WarningCircle size={16} weight="fill" className="mt-0.5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+          <p className="text-xs text-amber-700 dark:text-amber-300">
+            {!current
+              ? 'No hay ninguna tasa registrada. Los cobros en Bs o EUR se rechazaran hasta que registres una.'
+              : `La tasa es del ${formatDate(current.fecha)}${age ? ` (hace ${age} dia${age > 1 ? 's' : ''})` : ''}. Con la inflacion, cobrar con una tasa vieja es perder dinero en cada Pago Movil.`}
+          </p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
         <div>
           <Label>Tasa actual</Label>
           <div className="h-10 flex items-center font-mono text-2xl font-extrabold tabular-nums">
             {current ? current.bs_per_usd.toFixed(4) : <span className="text-sm text-muted-foreground">Sin tasa registrada</span>}
           </div>
-          {current && <p className="text-[11px] text-muted-foreground">Fuente: {current.source} · {formatDate(current.fecha)}</p>}
+          {current && (
+            <p className="text-[11px] text-muted-foreground">
+              Bs/USD · fuente {current.source} · {formatDate(current.fecha)}
+              {current.eur_per_usd ? ` · EUR/USD ${Number(current.eur_per_usd).toFixed(4)}` : ' · sin tasa EUR'}
+            </p>
+          )}
         </div>
         <div>
           <Label htmlFor="rate-input">Nueva tasa (Bs por USD)</Label>
@@ -118,6 +165,19 @@ function ExchangeRateCard() {
             placeholder="36.5000"
             value={input}
             onChange={(e) => setInput(e.target.value)}
+          />
+        </div>
+        <div>
+          <Label htmlFor="rate-eur">EUR por USD (opcional)</Label>
+          <Input
+            id="rate-eur"
+            type="number"
+            step="0.000001"
+            min="0"
+            inputMode="decimal"
+            placeholder="0.920000"
+            value={inputEur}
+            onChange={(e) => setInputEur(e.target.value)}
           />
         </div>
         <Button type="button" onClick={() => void handleSave()} disabled={submitting || !input}>
@@ -167,7 +227,7 @@ function HotelPaymentDataCard() {
         if (typeof t === 'string') setTelefono(t);
         if (typeof n === 'string') setTitular(n);
       } catch (err) {
-        toast.error(err instanceof ApiError ? err.message : 'Error');
+        toast.error(errorMessage(err));
       } finally { setLoading(false); }
     })();
   }, []);
@@ -183,7 +243,7 @@ function HotelPaymentDataCard() {
       ]);
       toast.success('Datos guardados');
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     } finally { setSubmitting(false); }
   }
 

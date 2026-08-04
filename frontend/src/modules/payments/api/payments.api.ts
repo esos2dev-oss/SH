@@ -3,8 +3,9 @@
 // de caja) quedan como stubs simplificados — la logica completa volvera cuando
 // se promuevan a Postgres functions/edge functions.
 
-import { supabase } from '../../../shared/lib/supabase';
+import { supabase, invokeFunction } from '../../../shared/lib/supabase';
 import type { PaginatedResponse } from '../../../shared/api/client';
+import { convertNumber, type RateSnapshot } from '../lib/currency';
 
 export type PaymentMethod =
   | 'efectivo' | 'tarjeta' | 'transferencia' | 'paypal' | 'otro'
@@ -72,6 +73,8 @@ export interface StatementLine {
   descripcion: string;
   monto: number;
   moneda: string;
+  /** Equivalente en moneda base (USD). Null si no se pudo convertir. */
+  monto_base?: number | null;
   method?: PaymentMethod;
   status?: PaymentStatus;
   referencia?: string | null;
@@ -84,6 +87,10 @@ export interface StatementSummary {
   total_pagado_pendiente: number;
   saldo: number;
   saldo_efectivo: number;
+  /** Acumulado en moneda base, para auditar la conversion. */
+  base_confirmado_usd?: number;
+  /** Pagos que no se pudieron convertir por falta de tasa. Si es > 0, el total es incompleto. */
+  pagos_sin_convertir?: number;
 }
 
 export interface BookingStatement {
@@ -107,6 +114,8 @@ export interface CustomerStatement {
 export interface ExchangeRate {
   fecha: string;
   bs_per_usd: number;
+  /** Euros por 1 USD. Necesario para convertir cobros en EUR a la base. */
+  eur_per_usd: number | null;
   source: 'manual' | 'bcv';
 }
 
@@ -253,10 +262,11 @@ export async function rejectPayment(id: number, reason: string): Promise<Payment
   return getPayment(id);
 }
 
-export async function getBookingStatement(bookingId: number): Promise<BookingStatement> {
+export async function getBookingStatement(bookingId: number, rate?: RateSnapshot | null): Promise<BookingStatement> {
   const { data: bk, error: e1 } = await supabase.from('bookings_with_relations').select('*').eq('id', bookingId).single();
-  if (e1) throw new Error(e1.message);
+  if (e1) throw e1;
   const { data: payments } = await supabase.from('booking_payments').select(PAYMENT_COLUMNS).eq('booking_id', bookingId).order('pagado_at');
+  const currentRate = rate !== undefined ? rate : await getCurrentRate();
 
   const lines: StatementLine[] = [];
   // Cargo de la reserva
@@ -264,42 +274,95 @@ export async function getBookingStatement(bookingId: number): Promise<BookingSta
     kind: 'charge', id: `bk-${bk.id}`, fecha: bk.fecha_entrada,
     descripcion: `Reserva ${bk.codigo}`, monto: Number(bk.importe_total), moneda: bk.moneda,
   });
-  let totalConfirmado = 0, totalPendiente = 0;
+
+  // AQUI estaba el bug 1: se sumaba `p.monto` sin mirar `p.moneda`, asi que
+  // 38 Bs + 38 EUR daba "76 EUR pagados" y la reserva quedaba saldada.
+  //
+  // Regla (identica a recalc_booking_payment_state en la BD): los cobros hechos
+  // en la moneda de la reserva se suman tal cual; solo los de otra moneda pasan
+  // por la base. Evita el ida y vuelta EUR->USD->EUR, que revaluaria reservas ya
+  // saldadas cada vez que se mueve la tasa.
+  const moneda = (bk.moneda as string).toUpperCase();
+  let mismaConfirmado = 0, mismaPendiente = 0;
+  let otrasBaseConfirmado = 0, otrasBasePendiente = 0;
+  let baseConfirmado = 0;
+  let sinConvertir = 0;
+
   for (const p of ((payments ?? []) as Record<string, unknown>[]).map(mapPayment)) {
     lines.push({
       kind: 'payment', id: p.id, fecha: p.pagado_at,
       descripcion: `Pago ${p.method}${p.referencia ? ' #' + p.referencia : ''}`,
       monto: -Number(p.monto), moneda: p.moneda,
+      monto_base: p.monto_base === null ? null : Number(p.monto_base),
       method: p.method, status: p.status, referencia: p.referencia,
     });
-    if (p.status === 'confirmed') totalConfirmado += Number(p.monto);
-    else if (p.status === 'pending_confirmation') totalPendiente += Number(p.monto);
+
+    if (p.status !== 'confirmed' && p.status !== 'pending_confirmation') continue;
+
+    const base = p.monto_base !== null && p.monto_base !== undefined
+      ? Number(p.monto_base)
+      : convertNumber(Number(p.monto), p.moneda, 'USD', currentRate);
+
+    if (p.status === 'confirmed' && base !== null) baseConfirmado += base;
+
+    if ((p.moneda ?? '').toUpperCase() === moneda) {
+      if (p.status === 'confirmed') mismaConfirmado += Number(p.monto);
+      else mismaPendiente += Number(p.monto);
+      continue;
+    }
+
+    if (base === null) { sinConvertir++; continue; }
+    if (p.status === 'confirmed') otrasBaseConfirmado += base;
+    else otrasBasePendiente += base;
   }
+
+  const totalConfirmado = mismaConfirmado + (convertNumber(otrasBaseConfirmado, 'USD', moneda, currentRate) ?? 0);
+  const totalPendiente = mismaPendiente + (convertNumber(otrasBasePendiente, 'USD', moneda, currentRate) ?? 0);
+
   const total_cargos = Number(bk.importe_total);
-  const saldo = total_cargos - totalConfirmado - totalPendiente;
-  const saldo_efectivo = total_cargos - totalConfirmado;
+  const saldo = round2(total_cargos - totalConfirmado - totalPendiente);
+  const saldo_efectivo = round2(total_cargos - totalConfirmado);
 
   return {
-    booking: { id: bk.id, codigo: bk.codigo, status: bk.status, fecha_entrada: bk.fecha_entrada, fecha_salida: bk.fecha_salida, importe_total: total_cargos, moneda: bk.moneda },
+    booking: { id: bk.id, codigo: bk.codigo, status: bk.status, fecha_entrada: bk.fecha_entrada, fecha_salida: bk.fecha_salida, importe_total: total_cargos, moneda },
     customer: { id: bk.customer.id, nombre: bk.customer.nombre, telefono: bk.customer.telefono ?? null },
     lines,
-    summary: { moneda: bk.moneda, total_cargos, total_pagado_confirmado: totalConfirmado, total_pagado_pendiente: totalPendiente, saldo, saldo_efectivo },
+    summary: {
+      moneda,
+      total_cargos,
+      total_pagado_confirmado: round2(totalConfirmado),
+      total_pagado_pendiente: round2(totalPendiente),
+      saldo,
+      saldo_efectivo,
+      base_confirmado_usd: round2(baseConfirmado),
+      pagos_sin_convertir: sinConvertir,
+    },
   };
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 
 export async function getCustomerStatement(customerId: number): Promise<CustomerStatement> {
   const { data: c, error } = await supabase.from('customers_with_stats').select('*').eq('id', customerId).single();
-  if (error) throw new Error(error.message);
+  if (error) throw error;
   const { data: bks } = await supabase.from('bookings_with_relations').select('*').eq('customer->>id', String(customerId)).order('fecha_entrada', { ascending: false });
+  // Una sola lectura de tasa para todo el estado de cuenta.
+  const rate = await getCurrentRate();
 
   const bookings: CustomerStatement['bookings'] = [];
-  let total_cargos = 0, total_conf = 0, total_pend = 0;
+  // Los totales agregados de un cliente con reservas en distintas monedas SOLO
+  // tienen sentido en la moneda base. Antes se sumaban en crudo y se etiquetaba
+  // 'USD' a ojo, de ahi el "0 estancias · EUR 0,00" arriba y "USD 0,00" abajo.
+  let base_cargos = 0, base_conf = 0, base_pend = 0;
+
   for (const b of (bks ?? []) as Array<{ id: number; codigo: string; status: string; fecha_entrada: string; fecha_salida: string; importe_total: number; importe_pagado: number; moneda: string }>) {
-    const st = await getBookingStatement(b.id);
+    const st = await getBookingStatement(b.id, rate);
     bookings.push({ booking: { id: b.id, codigo: b.codigo, status: b.status, fecha_entrada: b.fecha_entrada, fecha_salida: b.fecha_salida }, summary: st.summary, lines: st.lines });
-    total_cargos += st.summary.total_cargos;
-    total_conf += st.summary.total_pagado_confirmado;
-    total_pend += st.summary.total_pagado_pendiente;
+    base_cargos += convertNumber(st.summary.total_cargos, st.summary.moneda, 'USD', rate) ?? 0;
+    base_conf   += st.summary.base_confirmado_usd ?? 0;
+    base_pend   += convertNumber(st.summary.total_pagado_pendiente, st.summary.moneda, 'USD', rate) ?? 0;
   }
 
   const { data: loose } = await supabase.from('booking_payments').select(PAYMENT_COLUMNS).eq('customer_id', customerId).is('booking_id', null);
@@ -308,7 +371,14 @@ export async function getCustomerStatement(customerId: number): Promise<Customer
     customer: { id: c.id, nombre: `${c.nombres} ${c.apellidos}`, telefono: c.telefono ?? null, doc_numero: c.doc_numero ?? null },
     bookings,
     loose_payments: ((loose ?? []) as Record<string, unknown>[]).map(mapPayment),
-    totals: { moneda: 'USD', total_cargos, total_pagado_confirmado: total_conf, total_pagado_pendiente: total_pend, saldo: total_cargos - total_conf - total_pend, saldo_efectivo: total_cargos - total_conf },
+    totals: {
+      moneda: 'USD',
+      total_cargos: round2(base_cargos),
+      total_pagado_confirmado: round2(base_conf),
+      total_pagado_pendiente: round2(base_pend),
+      saldo: round2(base_cargos - base_conf - base_pend),
+      saldo_efectivo: round2(base_cargos - base_conf),
+    },
   };
 }
 
@@ -323,18 +393,30 @@ export async function listRates(): Promise<ExchangeRate[]> {
   return (data ?? []) as ExchangeRate[];
 }
 
-export async function upsertRate(data: { fecha?: string; bs_per_usd: number; source?: 'manual' | 'bcv' }): Promise<ExchangeRate> {
+export async function upsertRate(data: {
+  fecha?: string;
+  bs_per_usd: number;
+  eur_per_usd?: number | null;
+  source?: 'manual' | 'bcv';
+}): Promise<ExchangeRate> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('No autenticado');
-  const payload = {
+  const payload: Record<string, unknown> = {
     fecha: data.fecha ?? new Date().toISOString().slice(0, 10),
     bs_per_usd: data.bs_per_usd,
     source: data.source ?? 'manual',
     set_by: user.id,
   };
-  const { data: row, error } = await supabase.from('exchange_rates').upsert(payload).select('*').single();
-  if (error) throw new Error(error.message);
+  if (data.eur_per_usd !== undefined) payload.eur_per_usd = data.eur_per_usd;
+  const { data: row, error } = await supabase
+    .from('exchange_rates').upsert(payload, { onConflict: 'fecha' }).select('*').single();
+  if (error) throw error;
   return row as ExchangeRate;
+}
+
+/** Sincroniza la tasa oficial del BCV (edge function bcv-sync). */
+export async function syncBcvRate(): Promise<ExchangeRate & { provider?: string }> {
+  return invokeFunction<ExchangeRate & { provider?: string }>('bcv-sync', {}, { timeoutMs: 25000 });
 }
 
 export async function uploadReceipt(file: File): Promise<{ url: string; mime: string; size: number }> {

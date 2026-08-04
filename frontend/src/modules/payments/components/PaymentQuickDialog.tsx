@@ -22,7 +22,9 @@ import { Input } from '../../../shared/components/ui/input';
 import { Label } from '../../../shared/components/ui/label';
 import { Textarea } from '../../../shared/components/ui/textarea';
 import { SelectNative } from '../../../shared/components/ui/select-native';
-import { ApiError } from '../../../shared/api/client';
+import { errorMessage } from '../../../shared/lib/errors';
+import { formatCurrency } from '../../../shared/lib/format';
+import { convertAmount, convertNumber, unitsPerUsd, isRateStale, rateAgeDays, type RateSnapshot } from '../lib/currency';
 import { MethodSelector } from './MethodSelector';
 import { MethodFields, type MethodFieldsValue } from './MethodFields';
 import { TargetLookup, type SelectedTarget } from './TargetLookup';
@@ -94,7 +96,7 @@ function emptyForm(initial?: QuickPaymentInitial): FormState {
 export function PaymentQuickDialog({ open, onOpenChange, initial, onSaved }: Props) {
   const [form, setForm] = useState<FormState>(() => emptyForm(initial));
   const [submitting, setSubmitting] = useState(false);
-  const [rate, setRate] = useState<{ bs_per_usd: number; fecha: string } | null>(null);
+  const [rate, setRate] = useState<RateSnapshot | null>(null);
   const [rateLoaded, setRateLoaded] = useState(false);
 
   // Cargar tasa actual al abrir
@@ -114,16 +116,31 @@ export function PaymentQuickDialog({ open, onOpenChange, initial, onSaved }: Pro
     }
   }, [open, initial]);
 
-  // Si el método cambia, autoajustar moneda + limpiar method_details
+  // Si el metodo cambia, autoajustar moneda + limpiar method_details.
+  //
+  // CLAVE (bug 3): antes esto cambiaba la ETIQUETA de moneda dejando el monto
+  // intacto. Con un saldo de 320 EUR precargado, elegir "Pago Movil" lo dejaba
+  // como "320 VES" — 0,05 EUR en vez de 320. Ahora CONVERTIMOS el importe a la
+  // moneda del metodo usando la tasa vigente.
   useEffect(() => {
     if (!form.method) return;
-    const c = methodCurrency(form.method);
-    setForm((f) => ({
-      ...f,
-      methodFields: { method_details: { kind: form.method }, referencia: f.methodFields.referencia },
-      moneda: c ?? f.moneda,
-    }));
-  }, [form.method]);
+    const destino = methodCurrency(form.method);
+    setForm((f) => {
+      const origen = f.moneda;
+      const next: FormState = {
+        ...f,
+        methodFields: { method_details: { kind: form.method }, referencia: f.methodFields.referencia },
+        moneda: destino ?? f.moneda,
+      };
+      if (destino && destino !== origen) {
+        const convertido = convertAmount(f.monto, origen, destino, rate);
+        // Si no hay tasa para convertir, vaciamos el campo: es preferible que
+        // recepcion vuelva a teclear el importe a que cobre una cifra falsa.
+        next.monto = convertido ?? '';
+      }
+      return next;
+    });
+  }, [form.method, rate]);
 
   // Si preseleccionaste reserva y la moneda de la reserva esta disponible, prefer
   useEffect(() => {
@@ -142,6 +159,11 @@ export function PaymentQuickDialog({ open, onOpenChange, initial, onSaved }: Pro
     const monto = Number(form.monto);
     if (!Number.isFinite(monto) || monto <= 0) return 'Ingresa un monto valido';
     if (!form.moneda || form.moneda.length !== 3) return 'Moneda invalida';
+    // Sin tasa no se puede contabilizar el cobro en moneda base: la BD lo
+    // rechazaria igualmente, pero avisamos antes de que el usuario lo intente.
+    if (unitsPerUsd(form.moneda, rate) === null) {
+      return `No hay tasa registrada para ${form.moneda}. Sincroniza o registra la tasa antes de cobrar en esa moneda.`;
+    }
     if (form.method === 'pago_movil') {
       const d = form.methodFields.method_details as Record<string, unknown>;
       if (!d['banco_emisor']) return 'Banco emisor requerido';
@@ -182,6 +204,9 @@ export function PaymentQuickDialog({ open, onOpenChange, initial, onSaved }: Pro
       customer_id: form.target.customer_id ?? null,
       monto: Number(form.monto),
       moneda: form.moneda,
+      // Congelamos la tasa usada en el momento del cobro. Sin esto, recalcular
+      // el estado de cuenta mañana con otra tasa cambiaba pagos ya cerrados.
+      tasa_cambio: unitsPerUsd(form.moneda, rate),
       method: form.method,
       method_details: { kind: form.method, ...form.methodFields.method_details } as Record<string, unknown>,
       referencia: form.methodFields.referencia ?? null,
@@ -218,11 +243,7 @@ export function PaymentQuickDialog({ open, onOpenChange, initial, onSaved }: Pro
         onOpenChange(false);
       }
     } catch (e) {
-      if (e instanceof ApiError) {
-        toast.error(e.message || 'No se pudo registrar el pago');
-      } else {
-        toast.error('Error inesperado registrando el pago');
-      }
+      toast.error(errorMessage(e, 'No se pudo registrar el pago'));
     } finally {
       setSubmitting(false);
     }
@@ -233,14 +254,18 @@ export function PaymentQuickDialog({ open, onOpenChange, initial, onSaved }: Pro
     void handleSave(false);
   }
 
-  const equivalente =
-    rate && form.moneda === 'VES' && Number(form.monto) > 0
-      ? (Number(form.monto) / rate.bs_per_usd).toFixed(2)
+  // Equivalente en moneda base y en la moneda de la reserva, para que recepcion
+  // vea SIEMPRE cuanto se esta imputando realmente a la reserva.
+  const montoNum = Number(form.monto);
+  const equivalenteBase =
+    montoNum > 0 ? convertNumber(montoNum, form.moneda, 'USD', rate) : null;
+  const monedaReserva = form.target?.moneda ?? null;
+  const equivalenteReserva =
+    montoNum > 0 && monedaReserva && monedaReserva !== form.moneda
+      ? convertNumber(montoNum, form.moneda, monedaReserva, rate)
       : null;
-  const equivalenteVES =
-    rate && form.moneda === 'USD' && Number(form.monto) > 0
-      ? (Number(form.monto) * rate.bs_per_usd).toFixed(2)
-      : null;
+  const tasaVencida = isRateStale(rate);
+  const diasTasa = rateAgeDays(rate);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -299,10 +324,17 @@ export function PaymentQuickDialog({ open, onOpenChange, initial, onSaved }: Pro
                     onChange={(e) => setField('monto', e.target.value)}
                     autoFocus
                   />
-                  {(equivalente || equivalenteVES) && (
+                  {montoNum > 0 && (
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                      ≈ {equivalente ? `${equivalente} USD` : `${equivalenteVES} Bs`}
-                      {rate && ` (tasa ${rate.bs_per_usd.toFixed(2)} del ${rate.fecha})`}
+                      {equivalenteReserva !== null && (
+                        <span className="font-semibold text-foreground">
+                          Imputa {formatCurrency(equivalenteReserva, monedaReserva!)} a la reserva.{' '}
+                        </span>
+                      )}
+                      {equivalenteBase !== null
+                        ? <>≈ {formatCurrency(equivalenteBase, 'USD')} en moneda base</>
+                        : <span className="text-red-600 dark:text-red-400">Sin tasa para convertir {form.moneda}</span>}
+                      {rate && ` · tasa del ${rate.fecha}`}
                     </p>
                   )}
                 </div>
@@ -316,11 +348,15 @@ export function PaymentQuickDialog({ open, onOpenChange, initial, onSaved }: Pro
                 </div>
               </div>
 
-              {rateLoaded && !rate && form.moneda === 'VES' && (
+              {/* El aviso anterior solo saltaba si NO habia ninguna tasa. Con una
+                  tasa de hace 4 dias no decia nada y cada Pago Movil perdia dinero. */}
+              {rateLoaded && form.moneda !== 'USD' && tasaVencida && (
                 <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/40 p-3">
                   <WarningCircle size={16} weight="fill" className="mt-0.5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
                   <p className="text-xs text-amber-700 dark:text-amber-300">
-                    No hay tasa BCV registrada para hoy. Configurala en Settings para que el monto se contabilice correctamente en moneda base.
+                    {!rate
+                      ? 'No hay ninguna tasa de cambio registrada. Sincroniza el BCV en Configuracion de pagos antes de cobrar en otra moneda.'
+                      : `La tasa es del ${rate.fecha}${diasTasa ? ` (hace ${diasTasa} dia${diasTasa > 1 ? 's' : ''})` : ''}. Sincroniza el BCV antes de cobrar para no perder en el cambio.`}
                   </p>
                 </div>
               )}

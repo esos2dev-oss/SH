@@ -7,6 +7,8 @@ export interface AuditEntry {
   id: number;
   user_id: string | null;
   user_nombre: string | null;
+  user_email: string | null;
+  user_role: string | null;
   action: AuditAction;
   entity: string;
   entity_id: string | null;
@@ -17,6 +19,11 @@ export interface AuditEntry {
   created_at: string;
 }
 
+// La vista audit_log_with_user hace el join con profiles. Antes se consultaba
+// audit_log a pelo y se devolvia user_nombre: null hardcodeado, por eso TODOS
+// los registros salian como "— sin usuario —" aunque el user_id si estuviera.
+const AUDIT_VIEW = 'audit_log_with_user';
+
 export async function listAudit(params?: {
   user_id?: string; action?: AuditAction; entity?: string; entity_id?: string;
   dateFrom?: string; dateTo?: string; page?: number; limit?: number;
@@ -25,7 +32,7 @@ export async function listAudit(params?: {
   const limit = params?.limit ?? 50;
   const from = (page - 1) * limit;
   const to = from + limit - 1;
-  let q = supabase.from('audit_log').select('*', { count: 'exact' }).order('created_at', { ascending: false }).range(from, to);
+  let q = supabase.from(AUDIT_VIEW).select('*', { count: 'exact' }).order('created_at', { ascending: false }).range(from, to);
   if (params?.user_id)   q = q.eq('user_id', params.user_id);
   if (params?.action)    q = q.eq('action', params.action);
   if (params?.entity)    q = q.eq('entity', params.entity);
@@ -33,15 +40,15 @@ export async function listAudit(params?: {
   if (params?.dateFrom)  q = q.gte('created_at', params.dateFrom);
   if (params?.dateTo)    q = q.lte('created_at', params.dateTo);
   const { data, error, count } = await q;
-  if (error) throw new Error(error.message);
+  if (error) throw error;
   return {
-    data: ((data ?? []) as Array<Omit<AuditEntry, 'user_nombre'>>).map((e) => ({ ...e, user_nombre: null })),
+    data: (data ?? []) as AuditEntry[],
     pagination: { total: count ?? 0, page, limit, totalPages: Math.max(1, Math.ceil((count ?? 0) / limit)) },
   };
 }
 
 export async function getAuditEntry(id: number): Promise<AuditEntry> {
-  const { data, error } = await supabase.from('audit_log').select('*').eq('id', id).single();
-  if (error) throw new Error(error.message);
-  return { ...(data as Omit<AuditEntry, 'user_nombre'>), user_nombre: null };
+  const { data, error } = await supabase.from(AUDIT_VIEW).select('*').eq('id', id).single();
+  if (error) throw error;
+  return data as AuditEntry;
 }

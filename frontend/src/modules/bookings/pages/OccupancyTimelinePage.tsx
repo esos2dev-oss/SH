@@ -2,10 +2,10 @@
 // Click en bloque -> detalle de reserva. Click en hueco vacio -> crear reserva precargada.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { errorMessage } from '../../../shared/lib/errors';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { ArrowLeft, ArrowRight, ArrowsClockwise } from '@phosphor-icons/react';
-import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { Button } from '../../../shared/components/ui/button';
 import { SelectNative } from '../../../shared/components/ui/select-native';
@@ -85,7 +85,7 @@ export default function OccupancyTimelinePage() {
       setRooms(r);
       setBookings(b);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     } finally { setLoading(false); }
   }, [startDate, endDate]);
 
@@ -107,7 +107,7 @@ export default function OccupancyTimelinePage() {
       toast.success(`Reserva movida a Hab. ${target.numero}`);
       await load();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'No se pudo mover');
+      toast.error(errorMessage(err, 'No se pudo mover la reserva'));
     }
   }
 

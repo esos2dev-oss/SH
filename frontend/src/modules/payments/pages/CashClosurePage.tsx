@@ -1,6 +1,7 @@
 // Cierre de caja por turno. Resumen del periodo + commit.
 
 import { useCallback, useEffect, useState, type ComponentType } from 'react';
+import { errorMessage } from '../../../shared/lib/errors';
 import { toast } from 'sonner';
 import { Coins, Printer, CheckSquare, Receipt, Clock, Hourglass, type IconProps } from '@phosphor-icons/react';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
@@ -8,14 +9,13 @@ import { Button } from '../../../shared/components/ui/button';
 import { Input } from '../../../shared/components/ui/input';
 import { Label } from '../../../shared/components/ui/label';
 import { Textarea } from '../../../shared/components/ui/textarea';
-import { ApiError } from '../../../shared/api/client';
 import {
   previewClosure, closeShift, listClosures, lastClosureForUser,
   type CashClosureTotals, type CashClosure,
 } from '../api/cash-closure.api';
 import { METHOD_LABELS } from '../lib/labels';
 import type { PaymentMethod } from '../api/payments.api';
-import { formatCurrency, formatDateTime } from '../../../shared/lib/format';
+import { formatCurrency, formatBase, formatDateTime } from '../../../shared/lib/format';
 import { cn } from '../../../shared/lib/cn';
 import { useDialog } from '../../../shared/components/ui/dialog-system';
 
@@ -56,7 +56,7 @@ export default function CashClosurePage() {
       const r = await previewClosure({ opened_at: new Date(openedAt).toISOString() });
       setTotals(r);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
       setTotals(null);
     } finally { setLoading(false); }
   }, [openedAt]);
@@ -111,16 +111,17 @@ export default function CashClosurePage() {
       await loadPreview();
       await loadHistory();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     } finally { setSubmitting(false); }
   }
 
   function handlePrint() { window.print(); }
 
-  const confirmedCount = totals
-    ? Object.values(totals.by_method).reduce((acc, m) => acc + m.count, 0)
-    : 0;
-  const pendingCount = totals ? totals.total_count - confirmedCount : 0;
+  // pending_count llega ya calculado por la RPC como un CONTEO de pagos.
+  // La version anterior derivaba "confirmados" sumando by_method (que incluye
+  // los pendientes) y restaba, con lo que "Por confirmar" salia siempre 0.
+  const pendingCount = totals?.pending_count ?? 0;
+  const confirmedCount = Math.max(0, (totals?.total_count ?? 0) - pendingCount);
 
   // Duracion del turno: desde openedAt hasta closedAt (en vivo si esta "ahora")
   const durationMs = (() => {
@@ -206,33 +207,36 @@ export default function CashClosurePage() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Card title="Confirmados por moneda">
-              {Object.keys(totals.total_confirmados).length === 0 ? (
-                <p className="text-xs text-muted-foreground">Sin pagos confirmados</p>
-              ) : (
-                <ul className="divide-y divide-border">
-                  {Object.entries(totals.total_confirmados).map(([currency, total]) => (
-                    <li key={currency} className="flex items-center justify-between py-2 text-sm">
-                      <span>{currency}</span>
-                      <span className="font-bold tabular-nums">{formatCurrency(total, currency)}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+            {/* Los totales del turno van en moneda base. Antes se listaban por
+                moneda sin equivalencia y cuadrar caja era imposible. */}
+            <Card title="Total del turno (moneda base)">
+              <ul className="divide-y divide-border">
+                <li className="flex items-center justify-between py-2 text-sm">
+                  <span>Confirmado</span>
+                  <span className="font-bold tabular-nums">{formatBase(totals.total_confirmado_base_usd)}</span>
+                </li>
+                <li className="flex items-center justify-between py-2 text-sm">
+                  <span>Por confirmar</span>
+                  <span className="font-bold tabular-nums text-amber-600 dark:text-amber-400">
+                    {formatBase(totals.total_por_confirmar_base_usd)}
+                  </span>
+                </li>
+              </ul>
             </Card>
 
-            <Card title="Por confirmar por moneda">
-              {Object.keys(totals.total_por_confirmar).length === 0 ? (
-                <p className="text-xs text-muted-foreground">Sin pagos pendientes — todo conciliado.</p>
+            <Card title="Fuera de caja">
+              {totals.cancelados?.count ? (
+                <div className="text-sm">
+                  <p className="font-bold text-red-600 dark:text-red-400 tabular-nums">
+                    {formatBase(totals.cancelados.total_base_usd)}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {totals.cancelados.count} cobro{totals.cancelados.count > 1 ? 's' : ''} de reservas canceladas.
+                    No cuentan en el arqueo: estan pendientes de devolucion al huesped.
+                  </p>
+                </div>
               ) : (
-                <ul className="divide-y divide-border">
-                  {Object.entries(totals.total_por_confirmar).map(([currency, total]) => (
-                    <li key={currency} className="flex items-center justify-between py-2 text-sm">
-                      <span>{currency}</span>
-                      <span className="font-bold tabular-nums text-amber-600 dark:text-amber-400">{formatCurrency(total, currency)}</span>
-                    </li>
-                  ))}
-                </ul>
+                <p className="text-xs text-muted-foreground">Ningun cobro de reservas canceladas en este turno.</p>
               )}
             </Card>
           </div>
@@ -247,7 +251,8 @@ export default function CashClosurePage() {
                   <tr>
                     <th className="px-2 py-1.5 text-left">Metodo</th>
                     <th className="px-2 py-1.5 text-right">Cantidad</th>
-                    <th className="px-2 py-1.5 text-right">Totales por moneda</th>
+                    <th className="px-2 py-1.5 text-right">Cobrado</th>
+                    <th className="px-2 py-1.5 text-right">En base</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -256,10 +261,11 @@ export default function CashClosurePage() {
                       <td className="px-2 py-1.5">{METHOD_LABELS[method as PaymentMethod] ?? method}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{m.count}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">
-                        {Object.entries(m.total_moneda).map(([cur, t]) => (
-                          <span key={cur} className="ml-3">{formatCurrency(t, cur)}</span>
+                        {Object.entries(m.total_moneda ?? {}).map(([cur, t]) => (
+                          <span key={cur} className="ml-3">{formatCurrency(Number(t), cur)}</span>
                         ))}
                       </td>
+                      <td className="px-2 py-1.5 text-right tabular-nums font-semibold">{formatBase(m.total_base_usd)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -282,11 +288,11 @@ export default function CashClosurePage() {
                 </div>
                 <p className="text-[11px] text-muted-foreground">{c.user_name ?? '—'}</p>
                 <div className="mt-2 flex items-center justify-between">
-                  <span className="text-xs">{c.totals.total_count} registros</span>
+                  <span className="text-xs">{c.totals?.total_count ?? 0} registros</span>
                   <div className="text-right">
-                    {Object.entries(c.totals.total_confirmados).slice(0, 2).map(([cur, t]) => (
-                      <p key={cur} className="text-xs tabular-nums font-bold">{formatCurrency(t, cur)}</p>
-                    ))}
+                    <p className="text-xs tabular-nums font-bold">
+                      {formatBase(c.totals?.total_confirmado_base_usd ?? 0)}
+                    </p>
                   </div>
                 </div>
               </div>

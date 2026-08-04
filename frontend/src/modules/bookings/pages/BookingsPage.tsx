@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
+import { errorMessage } from '../../../shared/lib/errors';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Plus, ArrowClockwise, CalendarBlank, MagnifyingGlass } from '@phosphor-icons/react';
-import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { EmptyState } from '../../../shared/components/ui/EmptyState';
 import { BookingStatusBadge, PaymentStatusBadge } from '../../../shared/components/ui/StatusBadge';
@@ -39,7 +39,7 @@ export default function BookingsPage() {
       setItems(r.data);
       setTotal(r.pagination.total);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     } finally { setLoading(false); }
   }
   useEffect(() => { void load(); }, [status]);

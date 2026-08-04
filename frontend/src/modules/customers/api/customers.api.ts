@@ -47,8 +47,25 @@ export interface Customer {
 }
 
 export interface CustomerTimeline {
-  bookings: Array<{ id: number; codigo: string; fecha_entrada: string; fecha_salida: string; status: string; importe_total: string; room_numero: string }>;
+  bookings: Array<{ id: number; codigo: string; fecha_entrada: string; fecha_salida: string; status: string; importe_total: string; moneda: string; room_numero: string }>;
   emails: Array<{ id: number; asunto: string; event: string; status: string; sent_at: string | null; created_at: string }>;
+}
+
+/**
+ * Normaliza un termino de busqueda igual que la columna `search_text` de la BD:
+ * minusculas y sin tildes.
+ *
+ * Sin esto, buscar "Maria" no encontraba a "María" (ilike es sensible a
+ * tildes) y buscar "TEST Maria" no encontraba nada porque el filtro anterior
+ * comparaba campo por campo y ninguna columna sola contiene el nombre completo.
+ */
+export function normalizeSearch(input: string): string {
+  return input
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ');
 }
 
 export async function listCustomers(params?: { search?: string; doc_kind?: DocKind; segment?: 'vip' | 'inactivos' | 'birthdays_month' | 'recientes'; accepts_marketing?: boolean; page?: number; limit?: number }): Promise<PaginatedResponse<Customer[]>> {
@@ -61,11 +78,17 @@ export async function listCustomers(params?: { search?: string; doc_kind?: DocKi
   if (params?.doc_kind) q = q.eq('doc_kind', params.doc_kind);
   if (params?.accepts_marketing !== undefined) q = q.eq('accepts_marketing', params.accepts_marketing);
   if (params?.search) {
-    const s = params.search;
-    q = q.or(`nombres.ilike.%${s}%,apellidos.ilike.%${s}%,doc_numero.ilike.%${s}%,email.ilike.%${s}%`);
+    // search_text = nombres + apellidos + documento + email + telefono + placa,
+    // en minusculas y sin tildes (columna generada). Cada palabra del termino
+    // debe aparecer, en cualquier orden: "maria gonzalez" y "gonzalez maria"
+    // encuentran lo mismo.
+    const words = normalizeSearch(params.search).split(' ').filter(Boolean);
+    for (const w of words) {
+      q = q.ilike('search_text', `%${w}%`);
+    }
   }
   const { data, error, count } = await q;
-  if (error) throw new Error(error.message);
+  if (error) throw error;
 
   return {
     data: (data ?? []) as Customer[],

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { toast } from 'sonner';
 import { X, UserPlus, MagnifyingGlass, Warning, CheckCircle, CurrencyCircleDollar } from '@phosphor-icons/react';
 import { ApiError } from '../../../shared/api/client';
+import { errorMessage } from '../../../shared/lib/errors';
 import {
   listCustomers, createCustomer,
   REFERRAL_SOURCE_LABELS,
@@ -39,6 +40,8 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
   const [customerMode, setCustomerMode] = useState<CustomerMode>('existing');
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerResults, setCustomerResults] = useState<Customer[]>([]);
+  const [customerTotal, setCustomerTotal] = useState(0);
+  const [customerLoading, setCustomerLoading] = useState(true);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   // Nuevo cliente (inline)
   const [newCustNombres, setNewCustNombres] = useState('');
@@ -78,18 +81,28 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [overlapError, setOverlapError] = useState<string | null>(null);
 
-  // Cargar clientes al inicio (para empezar con algo)
-  useEffect(() => {
-    void listCustomers({ limit: 20 }).then((r) => setCustomerResults(r.data));
-  }, []);
+  // NOTA: aqui habia un segundo useEffect que cargaba los 20 primeros clientes
+  // al montar, SIN flag de cancelacion. Competia con la busqueda de abajo: si
+  // respondia despues, pisaba los resultados filtrados con la lista completa y
+  // parecia que el buscador "ignoraba lo escrito". El efecto de abajo ya cubre
+  // la carga inicial (se dispara con search vacio), asi que sobra.
 
   // Buscar clientes con debounce + cancel flag (evita race si responde tarde)
   useEffect(() => {
     if (customerMode !== 'existing') return;
     let cancelled = false;
+    setCustomerLoading(true);
     const t = setTimeout(() => {
-      void listCustomers({ search: customerSearch || undefined, limit: 20 })
-        .then((r) => { if (!cancelled) setCustomerResults(r.data); });
+      listCustomers({ search: customerSearch || undefined, limit: 50 })
+        .then((r) => { if (!cancelled) { setCustomerResults(r.data); setCustomerTotal(r.pagination.total); } })
+        // Sin este catch el error se tragaba en silencio y la lista se quedaba
+        // congelada con el resultado anterior.
+        .catch((err) => {
+          if (cancelled) return;
+          setCustomerResults([]);
+          toast.error(errorMessage(err, 'No se pudo buscar huespedes'));
+        })
+        .finally(() => { if (!cancelled) setCustomerLoading(false); });
     }, 250);
     return () => { cancelled = true; clearTimeout(t); };
   }, [customerSearch, customerMode]);
@@ -101,22 +114,39 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
     }
   }, [selectedCustomer]);
 
+  // === Validacion de fechas ===
+  // Antes no habia ninguna: se podia poner salida 05/08 con entrada 10/08, el
+  // formulario calculaba "1 dia = 56,00", ofrecia todas las habitaciones como
+  // libres y solo fallaba en el servidor con un error tecnico en ingles (bug 9).
+  const dateError = useMemo(() => {
+    if (!fechaEntrada || !fechaSalida) return null;
+    const e = new Date(`${fechaEntrada}T00:00:00`);
+    const s = new Date(`${fechaSalida}T00:00:00`);
+    if (Number.isNaN(e.getTime()) || Number.isNaN(s.getTime())) return 'Fechas invalidas.';
+    if (s <= e) return 'La fecha de salida debe ser posterior a la de entrada.';
+    return null;
+  }, [fechaEntrada, fechaSalida]);
+
   // Buscar disponibilidad al cambiar fechas/huespedes.
   // El flag `cancelled` evita que una respuesta vieja sobreescriba una nueva
   // si el usuario tipea rapido (race condition mostrando habitaciones que
   // ya no estan disponibles).
   useEffect(() => {
-    if (!fechaEntrada || !fechaSalida) { setAvailable([]); setRoomId(''); return; }
+    if (!fechaEntrada || !fechaSalida || dateError) { setAvailable([]); setRoomId(''); setRoomLoading(false); return; }
     let cancelled = false;
     setRoomLoading(true);
     const entradaIso = new Date(fechaEntrada + 'T14:00:00').toISOString();
     const salidaIso = new Date(fechaSalida + 'T11:00:00').toISOString();
-    void availability({ dateFrom: entradaIso, dateTo: salidaIso, huespedes })
+    availability({ dateFrom: entradaIso, dateTo: salidaIso, huespedes })
       .then((rs) => { if (!cancelled) setAvailable(rs); })
-      .catch(() => { if (!cancelled) setAvailable([]); })
+      .catch((err) => {
+        if (cancelled) return;
+        setAvailable([]);
+        toast.error(errorMessage(err, 'No se pudo consultar la disponibilidad'));
+      })
       .finally(() => { if (!cancelled) setRoomLoading(false); });
     return () => { cancelled = true; };
-  }, [fechaEntrada, fechaSalida, huespedes]);
+  }, [fechaEntrada, fechaSalida, huespedes, dateError]);
 
   // === Calculo en vivo del total ===
   // Debe replicar la logica del edge function booking-create: la tarifa
@@ -124,10 +154,10 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
   // se calculan dividiendo los dias por el factor del periodo.
   const calc = useMemo(() => {
     const room = available.find((r) => r.id === roomId);
-    if (!room || !fechaEntrada || !fechaSalida) return null;
-    const e = new Date(fechaEntrada);
-    const s = new Date(fechaSalida);
-    const dias = Math.max(1, Math.ceil((s.getTime() - e.getTime()) / 86400000));
+    if (!room || !fechaEntrada || !fechaSalida || dateError) return null;
+    const e = new Date(`${fechaEntrada}T00:00:00`);
+    const s = new Date(`${fechaSalida}T00:00:00`);
+    const dias = Math.max(1, Math.round((s.getTime() - e.getTime()) / 86400000));
     let unidades = dias;
     let tarifa = room.tarifa_dia;
     if (period === 'semana') { unidades = Math.max(1, Math.ceil(dias / 7));  tarifa = room.tarifa_semana; }
@@ -136,30 +166,42 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
     const descPctValor = (subtotal * Math.max(0, Math.min(100, descuentoPct))) / 100;
     const total = Math.max(0, subtotal - descPctValor - Math.max(0, descuentoMonto));
     const descuentoExcedido = descuentoMonto > subtotal;
-    return { unidades, tarifa, subtotal, descPctValor, total, descuentoExcedido };
-  }, [available, roomId, fechaEntrada, fechaSalida, period, descuentoPct, descuentoMonto]);
+    // La moneda sale del room_type, no de un default. Antes todo el bloque de
+    // importes se pintaba en USD aunque la reserva se creara en EUR (bug 14).
+    return { unidades, tarifa, subtotal, descPctValor, total, descuentoExcedido, moneda: room.moneda };
+  }, [available, roomId, fechaEntrada, fechaSalida, period, descuentoPct, descuentoMonto, dateError]);
 
   const payMontoNum = Number(payMonto || 0);
   const payExcedeTotal = includePayment && calc !== null && payMontoNum > calc.total;
 
-  const canSubmit = useMemo(() => {
-    if (customerMode === 'existing' && !selectedCustomer) return false;
+  // Lista de lo que falta, para poder DECIRLE al usuario por que no puede
+  // enviar en vez de dejar el boton gris sin explicacion (bug 10).
+  const missing = useMemo(() => {
+    const out: string[] = [];
+    if (customerMode === 'existing' && !selectedCustomer) out.push('selecciona un huesped');
     if (customerMode === 'new') {
-      if (!newCustNombres.trim() || !newCustApellidos.trim() || !newCustDocNumero.trim()) return false;
-      if (newCustReferral === 'otro' && !newCustReferralOther.trim()) return false;
+      if (!newCustNombres.trim()) out.push('nombres del huesped');
+      if (!newCustApellidos.trim()) out.push('apellidos del huesped');
+      if (!newCustDocNumero.trim()) out.push('numero de documento');
+      if (newCustReferral === 'otro' && !newCustReferralOther.trim()) out.push('detalle de "como nos conocio"');
     }
-    if (!fechaEntrada || !fechaSalida || !roomId) return false;
+    if (!fechaEntrada) out.push('fecha de entrada');
+    if (!fechaSalida) out.push('fecha de salida');
+    if (dateError) out.push(dateError.toLowerCase().replace(/\.$/, ''));
+    if (!roomId && !dateError) out.push('habitacion');
     if (includePayment) {
-      if (!payMonto || Number(payMonto) <= 0) return false;
-      if (calc && Number(payMonto) > calc.total) return false;
+      if (!payMonto || Number(payMonto) <= 0) out.push('monto del pago');
+      else if (calc && Number(payMonto) > calc.total) out.push('un monto de pago que no supere el total');
     }
-    return true;
-  }, [customerMode, selectedCustomer, newCustNombres, newCustApellidos, newCustDocNumero, newCustReferral, newCustReferralOther, fechaEntrada, fechaSalida, roomId, includePayment, payMonto, calc]);
+    return out;
+  }, [customerMode, selectedCustomer, newCustNombres, newCustApellidos, newCustDocNumero, newCustReferral, newCustReferralOther, fechaEntrada, fechaSalida, roomId, includePayment, payMonto, calc, dateError]);
+
+  const canSubmit = missing.length === 0;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (!canSubmit) {
-      toast.error('Completa los campos requeridos');
+      toast.error(`Falta: ${missing.join(', ')}`);
       return;
     }
     setSubmitting(true);
@@ -221,23 +263,23 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
           });
         } catch (payErr) {
           pagoExito = false;
-          pagoErrorMsg = payErr instanceof Error ? payErr.message : 'Error';
+          pagoErrorMsg = errorMessage(payErr, 'error desconocido');
         }
       }
 
       if (!includePayment || pagoExito) {
-        toast.success(`Reserva ${booking.codigo} creada${includePayment ? ` · pago de ${formatCurrency(Number(payMonto))} registrado` : ''}`);
+        toast.success(`Reserva ${booking.codigo} creada${includePayment ? ` · pago de ${formatCurrency(Number(payMonto), booking.moneda)} registrado` : ''}`);
       } else {
         // Reserva sí, pago no — un único mensaje claro
         toast.warning(`Reserva ${booking.codigo} creada, pero el pago fallo (${pagoErrorMsg}). Reintenta desde el detalle.`);
       }
       onSaved(booking.id);
     } catch (err) {
-      if (err instanceof ApiError && err.code === 'CONFLICT') {
+      if (err instanceof ApiError && (err.code === 'CONFLICT' || err.code === 'OVERLAP')) {
         setOverlapError(err.message);
-        toast.error('Solapamiento detectado');
+        toast.error(err.message);
       } else {
-        toast.error(err instanceof ApiError ? err.message : 'Error');
+        toast.error(errorMessage(err, 'No se pudo crear la reserva'));
       }
     } finally {
       setSubmitting(false);
@@ -292,21 +334,30 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
                     <button type="button" onClick={() => { setSelectedCustomer(null); setBookingPlaca(''); }} className="text-xs text-muted-foreground hover:text-foreground">Cambiar</button>
                   </div>
                 ) : (
-                  <div className="max-h-40 overflow-y-auto rounded-xl border border-border divide-y">
-                    {customerResults.length === 0 ? (
-                      <div className="p-3 text-center space-y-1">
-                        <p className="text-xs text-muted-foreground">Sin resultados para "{customerSearch || '...'}"</p>
-                        <button type="button" onClick={() => setCustomerMode('new')} className="text-xs font-semibold text-primary hover:underline">
-                          Crear nuevo huesped
+                  <>
+                    <div className="max-h-40 overflow-y-auto rounded-xl border border-border divide-y">
+                      {customerLoading ? (
+                        <p className="p-3 text-center text-xs text-muted-foreground">Buscando...</p>
+                      ) : customerResults.length === 0 ? (
+                        <div className="p-3 text-center space-y-1">
+                          <p className="text-xs text-muted-foreground">Sin resultados para "{customerSearch || '...'}"</p>
+                          <button type="button" onClick={() => setCustomerMode('new')} className="text-xs font-semibold text-primary hover:underline">
+                            Crear nuevo huesped
+                          </button>
+                        </div>
+                      ) : customerResults.map((c) => (
+                        <button key={c.id} type="button" onClick={() => setSelectedCustomer(c)} className="w-full text-left p-2.5 hover:bg-muted/50 text-sm">
+                          <p className="font-semibold">{c.nombres} {c.apellidos}</p>
+                          <p className="text-[11px] text-muted-foreground">{c.doc_kind} {c.doc_numero}{c.telefono ? ` · ${c.telefono}` : ''}</p>
                         </button>
-                      </div>
-                    ) : customerResults.map((c) => (
-                      <button key={c.id} type="button" onClick={() => setSelectedCustomer(c)} className="w-full text-left p-2.5 hover:bg-muted/50 text-sm">
-                        <p className="font-semibold">{c.nombres} {c.apellidos}</p>
-                        <p className="text-[11px] text-muted-foreground">{c.doc_kind} {c.doc_numero}{c.telefono ? ` · ${c.telefono}` : ''}</p>
-                      </button>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                    {!customerLoading && customerTotal > customerResults.length && (
+                      <p className="text-[11px] text-muted-foreground px-1">
+                        Mostrando {customerResults.length} de {customerTotal}. Afina la busqueda para ver el resto.
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
             ) : (
@@ -385,7 +436,17 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
               </p>
             )}
 
-            {fechaEntrada && fechaSalida && (
+            {dateError && (
+              <div className="mt-3 flex items-start gap-2 text-xs bg-red-50 dark:bg-red-950/30 text-red-800 dark:text-red-200 rounded-xl p-3 border border-red-200 dark:border-red-900">
+                <Warning size={16} weight="duotone" className="shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold">{dateError}</p>
+                  <p>Corrige las fechas para ver habitaciones disponibles y el importe.</p>
+                </div>
+              </div>
+            )}
+
+            {fechaEntrada && fechaSalida && !dateError && (
               <div className="mt-4">
                 <div className="flex items-end justify-between gap-2 mb-1.5">
                   <Label>Habitacion disponible <span className="text-muted-foreground font-normal normal-case">({available.length})</span></Label>
@@ -418,7 +479,7 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
                           <button key={r.id} type="button" onClick={() => setRoomId(r.id)} className={`text-left p-3 rounded-xl border transition-all ${roomId === r.id ? 'border-primary bg-primary/5 ring-2 ring-primary/30' : 'border-border bg-card hover:bg-muted/30'}`}>
                             <p className="font-bold">Hab. {r.numero}</p>
                             <p className="text-[11px] text-muted-foreground">{r.room_type}{r.planta ? ` · planta ${r.planta}` : ''}</p>
-                            <p className="text-xs font-semibold mt-1">{formatCurrency(tarifa)} / {period}</p>
+                            <p className="text-xs font-semibold mt-1">{formatCurrency(tarifa, r.moneda)} / {period}</p>
                           </button>
                         );
                       })}
@@ -442,10 +503,10 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
                 </div>
               </div>
               <div className="rounded-xl border border-border bg-muted/30 p-4 space-y-1.5 text-sm">
-                <div className="flex justify-between"><span className="text-muted-foreground">{formatCurrency(calc.tarifa)} × {calc.unidades} {period}{calc.unidades > 1 ? 's' : ''}</span><span className="tabular-nums">{formatCurrency(calc.subtotal)}</span></div>
-                {calc.descPctValor > 0 && <div className="flex justify-between text-emerald-700 dark:text-emerald-400"><span>Descuento {descuentoPct}%</span><span className="tabular-nums">−{formatCurrency(calc.descPctValor)}</span></div>}
-                {descuentoMonto > 0 && <div className="flex justify-between text-emerald-700 dark:text-emerald-400"><span>Descuento fijo</span><span className="tabular-nums">−{formatCurrency(descuentoMonto)}</span></div>}
-                <div className="flex justify-between border-t border-border pt-1.5 mt-1.5 font-bold"><span>Total</span><span className="tabular-nums text-base">{formatCurrency(calc.total)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">{formatCurrency(calc.tarifa, calc.moneda)} × {calc.unidades} {period}{calc.unidades > 1 ? 's' : ''}</span><span className="tabular-nums">{formatCurrency(calc.subtotal, calc.moneda)}</span></div>
+                {calc.descPctValor > 0 && <div className="flex justify-between text-emerald-700 dark:text-emerald-400"><span>Descuento {descuentoPct}%</span><span className="tabular-nums">−{formatCurrency(calc.descPctValor, calc.moneda)}</span></div>}
+                {descuentoMonto > 0 && <div className="flex justify-between text-emerald-700 dark:text-emerald-400"><span>Descuento fijo</span><span className="tabular-nums">−{formatCurrency(descuentoMonto, calc.moneda)}</span></div>}
+                <div className="flex justify-between border-t border-border pt-1.5 mt-1.5 font-bold"><span>Total</span><span className="tabular-nums text-base">{formatCurrency(calc.total, calc.moneda)}</span></div>
               </div>
               {calc.descuentoExcedido && (
                 <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
@@ -472,13 +533,13 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
                     </select>
                   </div>
                   <div>
-                    <Label>Monto</Label>
-                    <input type="number" min={0} step="0.01" value={payMonto} onChange={(e) => setPayMonto(e.target.value)} placeholder={calc ? formatCurrency(calc.total) : '0.00'} className="w-full h-11 px-4 rounded-xl border border-border bg-muted/50 text-sm" />
+                    <Label>Monto {calc ? `(en ${calc.moneda})` : ''}</Label>
+                    <input type="number" min={0} step="0.01" value={payMonto} onChange={(e) => setPayMonto(e.target.value)} placeholder={calc ? String(calc.total.toFixed(2)) : '0.00'} className="w-full h-11 px-4 rounded-xl border border-border bg-muted/50 text-sm" />
                   </div>
                 </div>
                 {payExcedeTotal && (
                   <p className="text-[11px] text-red-600 dark:text-red-400 flex items-center gap-1.5">
-                    <Warning size={12} weight="duotone" /> El monto del pago supera el total de la reserva ({calc && formatCurrency(calc.total)}).
+                    <Warning size={12} weight="duotone" /> El monto del pago supera el total de la reserva ({calc && formatCurrency(calc.total, calc.moneda)}).
                   </p>
                 )}
                 <Field label="Referencia (numero, ultimos digitos, etc.)" value={payReferencia} onChange={setPayReferencia} />
@@ -507,11 +568,17 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
             </div>
           )}
 
-          <div className="sticky bottom-0 -mx-6 -mb-6 px-6 py-4 bg-card border-t border-border flex gap-2">
+          <div className="sticky bottom-0 -mx-6 -mb-6 px-6 py-4 bg-card border-t border-border flex flex-wrap items-center gap-2">
             <button type="submit" disabled={!canSubmit || submitting} className="h-11 px-6 bg-primary text-primary-foreground rounded-xl font-semibold text-sm hover:bg-primary/90 shadow-lg shadow-primary/20 disabled:opacity-50">
               {submitting ? 'Creando...' : 'Crear reserva'}
             </button>
             <button type="button" onClick={onClose} className="h-11 px-6 border border-border bg-card rounded-xl font-semibold text-sm hover:bg-muted">Cancelar</button>
+            {/* Decir que falta, en vez de dejar el boton gris sin explicacion. */}
+            {!canSubmit && !submitting && (
+              <p className="text-[11px] text-muted-foreground basis-full sm:basis-auto">
+                Falta: {missing.join(', ')}.
+              </p>
+            )}
           </div>
 
         </form>

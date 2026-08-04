@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { Bed, ArrowClockwise, Plus, Funnel, Wrench, Sparkle, CheckCircle, Lock, X } from '@phosphor-icons/react';
 
 import { useAuth } from '../../../contexts/AuthContext';
-import { ApiError } from '../../../shared/api/client';
+import { errorMessage } from '../../../shared/lib/errors';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { RoomStatusBadge } from '../../../shared/components/ui/StatusBadge';
 import { EmptyState } from '../../../shared/components/ui/EmptyState';
@@ -53,7 +53,7 @@ export default function RoomsPage() {
       setRooms(roomsList);
       setSummary(occ);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error cargando habitaciones');
+      toast.error(errorMessage(err, 'No se pudieron cargar las habitaciones'));
     } finally {
       setLoading(false);
     }
@@ -78,15 +78,21 @@ export default function RoomsPage() {
       toast.success(`Habitacion ${room.numero}: ${status}`);
       await load();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err, 'No se pudo cambiar el estado de la habitacion'));
     }
   }
+
+  // occupancyRate YA viene en porcentaje (0-100) desde rooms.api. El codigo
+  // anterior lo multiplicaba otra vez por 100 y mostraba "1200%" para 2 de 17.
+  const occupancyLabel = summary
+    ? `${summary.byStatus.ocupada} ocupadas de ${summary.total} (${summary.occupancyRate}%)`
+    : '';
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Habitaciones"
-        subtitle={summary ? `${summary.byStatus.ocupada} ocupadas de ${summary.total} (${Math.round(summary.occupancyRate * 100)}%)` : 'Cargando...'}
+        subtitle={summary ? occupancyLabel : 'Cargando...'}
         actions={
           <>
             <button type="button" onClick={() => void load()} className="h-9 px-3 text-xs font-semibold border border-border bg-card rounded-lg hover:bg-muted transition-all flex items-center gap-1.5">
@@ -168,7 +174,7 @@ export default function RoomsPage() {
               </div>
               <div className="space-y-1 text-xs">
                 <p className="text-muted-foreground">{room.room_type.nombre}{room.planta ? ` · planta ${room.planta}` : ''}</p>
-                <p className="font-semibold">{formatCurrency(room.room_type.tarifa_dia)} / dia</p>
+                <p className="font-semibold">{formatCurrency(room.room_type.tarifa_dia, room.room_type.moneda)} / dia</p>
               </div>
               <div className="mt-3"><RoomStatusBadge status={room.status} /></div>
               {canSetStatus && (

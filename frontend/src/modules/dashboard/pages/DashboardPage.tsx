@@ -1,6 +1,7 @@
 // Panel del dia: 3 columnas (Hoy / Tablero / Inbox) + KPIs.
 
 import { useCallback, useEffect, useState, type ComponentType } from 'react';
+import { errorMessage } from '../../../shared/lib/errors';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
@@ -10,7 +11,6 @@ import {
   type IconProps,
 } from '@phosphor-icons/react';
 import { useAuth } from '../../../contexts/AuthContext';
-import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import {
   getDashboardToday, getOccupancyExtras,
@@ -29,7 +29,7 @@ import { METHOD_LABELS } from '../../payments/lib/labels';
 import type { PaymentMethod } from '../../payments/api/payments.api';
 import { confirmPayment, rejectPayment } from '../../payments/api/payments.api';
 import { useDialog } from '../../../shared/components/ui/dialog-system';
-import { formatCurrency } from '../../../shared/lib/format';
+import { formatCurrency, formatBase } from '../../../shared/lib/format';
 import { cn } from '../../../shared/lib/cn';
 
 type IconType = ComponentType<IconProps>;
@@ -61,7 +61,7 @@ export default function DashboardPage() {
       setData(r);
       setOccupancyExtras(occ);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error cargando el panel');
+      toast.error(errorMessage(err, 'No se pudo cargar el panel'));
     } finally { setLoading(false); }
   }, []);
 
@@ -116,13 +116,13 @@ export default function DashboardPage() {
             icon={CalendarBlank}
             title="Ocupacion del mes"
             pct={occupancyExtras.month.occupancyPct}
-            sub={`Ingresos ${formatCurrency(occupancyExtras.month.revenue)}`}
+            sub={`Ingresos ${formatBase(occupancyExtras.month.revenue)}`}
           />
           <OccupancyCard
             icon={ChartLineUp}
             title="Ocupacion del anio"
             pct={occupancyExtras.year.occupancyPct}
-            sub={`Ingresos ${formatCurrency(occupancyExtras.year.revenue)}`}
+            sub={`Ingresos ${formatBase(occupancyExtras.year.revenue)}`}
           />
         </div>
       )}
@@ -407,7 +407,7 @@ function PendingPaymentCard({ item, onChanged }: { item: PendingPaymentItem; onC
       toast.success('Pago confirmado');
       await onChanged();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     }
   }
   async function handleReject() {
@@ -425,7 +425,7 @@ function PendingPaymentCard({ item, onChanged }: { item: PendingPaymentItem; onC
       toast.success('Pago rechazado');
       await onChanged();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     }
   }
   return (

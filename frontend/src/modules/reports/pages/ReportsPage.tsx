@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
+import { errorMessage } from '../../../shared/lib/errors';
 import { toast } from 'sonner';
 import { ArrowDown, ArrowUp, Receipt, ChartLineUp, ChartBar, DownloadSimple, CalendarBlank } from '@phosphor-icons/react';
 import { cn } from '../../../shared/lib/cn';
-import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import {
   financialReport, financialCsvUrl, customersReport, kpisReport, paymentMethodsReport,
@@ -10,7 +10,7 @@ import {
 } from '../api/reports.api';
 import { METHOD_LABELS } from '../../payments/lib/labels';
 import type { PaymentMethod } from '../../payments/api/payments.api';
-import { formatCurrency } from '../../../shared/lib/format';
+import { formatCurrency, formatBase } from '../../../shared/lib/format';
 
 type RangePreset = 'today' | 'week' | 'month' | 'year' | 'custom';
 
@@ -62,7 +62,7 @@ export default function ReportsPage() {
       setKpis(k);
       setPaymentMethods(pm);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     } finally { setLoading(false); }
   }
   useEffect(() => { void load(); }, [period, dateFrom, dateTo]);
@@ -151,7 +151,7 @@ export default function ReportsPage() {
                       <div key={`${c.categoryId}-${c.type}`}>
                         <div className="flex items-center justify-between text-xs mb-1">
                           <span className="font-medium">{c.nombre}</span>
-                          <span className={`tabular-nums font-semibold ${c.type === 'ingreso' ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(c.total)}</span>
+                          <span className={`tabular-nums font-semibold ${c.type === 'ingreso' ? 'text-emerald-600' : 'text-red-600'}`}>{formatBase(c.total)}</span>
                         </div>
                         <div className="h-2 bg-muted rounded-full overflow-hidden">
                           <div className={`h-full rounded-full ${c.type === 'ingreso' ? 'bg-emerald-500' : 'bg-red-500'}`} style={{ width: `${pct}%` }} />
@@ -181,7 +181,7 @@ export default function ReportsPage() {
                           <div className="bg-emerald-500 rounded-l h-full" style={{ width: `${inPct}%` }} title={`Ingresos: ${s.ingresos}`} />
                           <div className="bg-red-500 rounded-r h-full" style={{ width: `${outPct}%` }} title={`Egresos: ${s.egresos}`} />
                         </div>
-                        <span className="w-20 text-right tabular-nums font-semibold">{formatCurrency(s.ingresos - s.egresos)}</span>
+                        <span className="w-20 text-right tabular-nums font-semibold">{formatBase(s.ingresos - s.egresos)}</span>
                       </div>
                     );
                   })}
@@ -247,7 +247,7 @@ export default function ReportsPage() {
                 <div key={t.id}>
                   <div className="flex items-center justify-between text-xs mb-1">
                     <span className="font-medium">{t.nombre}</span>
-                    <span className="tabular-nums">{t.bookings} reservas · <strong>{formatCurrency(t.revenue)}</strong></span>
+                    <span className="tabular-nums">{t.bookings} reservas · <strong>{formatBase(t.revenue)}</strong></span>
                   </div>
                   <div className="h-2 bg-muted rounded-full overflow-hidden">
                     <div className="h-full rounded-full bg-blue-500" style={{ width: `${pct}%` }} />
@@ -283,7 +283,7 @@ export default function ReportsPage() {
                       <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
                       <td className="px-3 py-2 font-medium">{c.nombre}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{c.estancias}</td>
-                      <td className="px-3 py-2 text-right tabular-nums font-semibold">{formatCurrency(c.gastado)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums font-semibold">{formatBase(c.gastado)}</td>
                     </tr>
                   ))}
                 </tbody>

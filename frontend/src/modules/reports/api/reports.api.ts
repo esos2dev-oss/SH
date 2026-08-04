@@ -22,7 +22,9 @@ export interface KpisReport {
   rangeFrom: string; rangeTo: string;
   totalRooms: number; days: number;
   roomNights: number; availableRoomNights: number;
-  revenue: number; occupancyPct: number; adr: number; revpar: number;
+  /** Siempre en moneda base (`moneda`). */
+  revenue: number; moneda: string; bookingsCount: number;
+  occupancyPct: number; adr: number; revpar: number;
   topRoomTypes: Array<{ id: number; nombre: string; bookings: number; revenue: number }>;
 }
 
@@ -37,16 +39,31 @@ export interface PaymentMethodsReport {
 
 export async function financialReport(params: { period?: 'daily' | 'weekly' | 'monthly'; dateFrom: string; dateTo: string }): Promise<FinancialReport> {
   const groupBy = params.period === 'monthly' ? 'month' : params.period === 'weekly' ? 'week' : 'day';
-  const { data, error } = await supabase.rpc('ledger_summary', {
-    p_from: params.dateFrom, p_to: params.dateTo, p_group: groupBy,
-  });
-  if (error) throw new Error(error.message);
-  const s = data as { totals: FinancialReport['totals']; byCategory: FinancialReport['byCategory']; series: FinancialReport['series'] };
+  // ledger_summary y reports_kpis se piden juntos para que "Ingresos" y
+  // "Ocupacion" de la misma pantalla salgan del mismo rango y la misma moneda
+  // base. Antes convivian tres cifras distintas de lo mismo (bug 5).
+  const [summaryRes, kpisRes] = await Promise.all([
+    supabase.rpc('ledger_summary', { p_from: params.dateFrom, p_to: params.dateTo, p_group: groupBy }),
+    supabase.rpc('reports_kpis', { p_from: params.dateFrom, p_to: params.dateTo }),
+  ]);
+  if (summaryRes.error) throw summaryRes.error;
+  if (kpisRes.error) throw kpisRes.error;
+
+  const s = summaryRes.data as {
+    totals: FinancialReport['totals'];
+    byCategory: FinancialReport['byCategory'];
+    series: FinancialReport['series'];
+    bookingsCount?: number;
+  };
+  const k = kpisRes.data as { occupancyPct?: number };
+
   return {
     period: params.period ?? 'daily',
     rangeFrom: params.dateFrom, rangeTo: params.dateTo,
     totals: s.totals, byCategory: s.byCategory, series: s.series,
-    bookingsCount: 0, occupancyAvg: 0,
+    // Antes estaban hardcodeados a 0, de ahi el "Reservas: 0" con reservas reales.
+    bookingsCount: Number(s.bookingsCount ?? 0),
+    occupancyAvg: Number(k.occupancyPct ?? 0),
   };
 }
 

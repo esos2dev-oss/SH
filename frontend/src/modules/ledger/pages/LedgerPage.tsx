@@ -1,14 +1,14 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { errorMessage } from '../../../shared/lib/errors';
 import { toast } from 'sonner';
 import { Plus, ArrowClockwise, Receipt, X, Paperclip, ArrowDown, ArrowUp, CheckCircle } from '@phosphor-icons/react';
-import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { EmptyState } from '../../../shared/components/ui/EmptyState';
 import {
   listLedger, listCategories, createLedger, conciliarLedger, uploadReceipt,
   type LedgerEntry, type LedgerType, type LedgerCategory, type PaymentMethod,
 } from '../api/ledger.api';
-import { formatCurrency, formatDate } from '../../../shared/lib/format';
+import { formatCurrency, formatBase, formatDate } from '../../../shared/lib/format';
 
 export default function LedgerPage() {
   const [items, setItems] = useState<LedgerEntry[]>([]);
@@ -27,7 +27,7 @@ export default function LedgerPage() {
       const r = await listLedger(params);
       setItems(r.data);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     } finally { setLoading(false); }
   }
   useEffect(() => {
@@ -44,7 +44,7 @@ export default function LedgerPage() {
       toast.success('Conciliado');
       await load();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     }
   }
 
@@ -63,9 +63,9 @@ export default function LedgerPage() {
 
       {/* Totales */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Kpi color="emerald" icon={ArrowDown} label="Ingresos" value={formatCurrency(totalIn)} />
-        <Kpi color="red" icon={ArrowUp} label="Egresos" value={formatCurrency(totalOut)} />
-        <Kpi color="blue" icon={Receipt} label="Neto" value={formatCurrency(totalIn - totalOut)} />
+        <Kpi color="emerald" icon={ArrowDown} label="Ingresos" value={formatBase(totalIn)} />
+        <Kpi color="red" icon={ArrowUp} label="Egresos" value={formatBase(totalOut)} />
+        <Kpi color="blue" icon={Receipt} label="Neto" value={formatBase(totalIn - totalOut)} />
       </div>
 
       {/* Filtros */}
@@ -212,14 +212,14 @@ function LedgerFormDialog({ categories, onClose, onSaved }: { categories: Ledger
           await uploadReceipt(created.id, file);
           toast.success('Asiento creado con comprobante');
         } catch (err) {
-          toast.warning('Asiento creado pero el comprobante fallo: ' + (err instanceof ApiError ? err.message : 'error'));
+          toast.warning('Asiento creado pero el comprobante fallo: ' + (errorMessage(err, 'error desconocido')));
         }
       } else {
         toast.success('Asiento creado');
       }
       onSaved();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     } finally { setSubmitting(false); }
   }
 

@@ -4,6 +4,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   useCallback,
   type ReactNode,
@@ -39,29 +40,67 @@ async function fetchProfile(userId: string): Promise<AuthUser | null> {
   return data as AuthUser;
 }
 
+/** Registra el ultimo acceso. Best-effort: si falla, no bloquea el login. */
+async function touchLastLogin(): Promise<void> {
+  try {
+    await supabase.rpc('touch_last_login');
+  } catch {
+    /* la columna last_login_at es informativa, no rompemos la sesion por esto */
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  // Evita re-consultar el profile en cada TOKEN_REFRESHED (ocurre cada ~50min
+  // y al recuperar el foco de la pestaña).
+  const loadedUserId = useRef<string | null>(null);
 
   useEffect(() => {
     let cancel = false;
 
+    async function loadProfile(userId: string, markLogin: boolean) {
+      if (loadedUserId.current === userId) return;
+      loadedUserId.current = userId;
+      const profile = await fetchProfile(userId);
+      // Si no se pudo leer el profile (red caida, RLS, usuario desactivado)
+      // liberamos el guard para poder reintentar en el proximo evento.
+      if (!profile) loadedUserId.current = null;
+      if (!cancel) setUser(profile);
+      if (profile && markLogin) void touchLastLogin();
+    }
+
     (async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user && !cancel) {
-        const profile = await fetchProfile(session.user.id);
-        if (!cancel) setUser(profile);
+        await loadProfile(session.user.id, false);
       }
       if (!cancel) setIsLoading(false);
     })();
 
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    // IMPORTANTE: este callback NO puede ser async ni hacer await de ninguna
+    // llamada a Supabase.
+    //
+    // auth-js invoca los subscribers con `await x.callback(...)` mientras
+    // mantiene tomado el lock de la sesion (GoTrueClient._notifyAllSubscribers).
+    // Cualquier peticion que necesite el access token entra por la rama
+    // reentrante de `_acquireLock`, que hace `await last` sobre la operacion que
+    // ya esta esperando a este mismo callback — espera circular. Y esa rama se
+    // salta el timeout de 5s, asi que el cuelgue es permanente: la app se queda
+    // en "Guardando..." para siempre y solo se recupera recargando.
+    //
+    // La solucion es diferir el trabajo fuera del lock con un setTimeout(0).
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (!session?.user) {
+        loadedUserId.current = null;
         setUser(null);
         return;
       }
-      const profile = await fetchProfile(session.user.id);
-      setUser(profile);
+      const userId = session.user.id;
+      const markLogin = event === 'SIGNED_IN';
+      setTimeout(() => {
+        if (!cancel) void loadProfile(userId, markLogin);
+      }, 0);
     });
 
     return () => {
@@ -78,6 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     await supabase.auth.signOut();
+    loadedUserId.current = null;
     setUser(null);
   }, []);
 

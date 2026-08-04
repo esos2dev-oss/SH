@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
+import { errorMessage } from '../../../shared/lib/errors';
 import { useParams, Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { ArrowLeft, EnvelopeSimple, Phone, IdentificationCard, Calendar, Globe, MapPin, Car, Sparkle, PencilSimple } from '@phosphor-icons/react';
-import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { getCustomer, getCustomerTimeline, REFERRAL_SOURCE_LABELS, type Customer, type CustomerTimeline } from '../api/customers.api';
 import { CustomerFormDialog } from '../components/CustomerFormDialog';
-import { formatCurrency, formatDate, formatDateTime } from '../../../shared/lib/format';
+import { formatCurrency, formatBase, formatDate, formatDateTime } from '../../../shared/lib/format';
 import { BookingStatusBadge } from '../../../shared/components/ui/StatusBadge';
 import { GuestStatement } from '../../payments/components/GuestStatement';
 import { useQuickPayment } from '../../payments/hooks/QuickPaymentProvider';
@@ -24,7 +24,7 @@ export default function CustomerDetailPage() {
     if (!id) return;
     void Promise.all([getCustomer(Number(id)), getCustomerTimeline(Number(id))])
       .then(([c, t]) => { setCustomer(c); setTimeline(t); })
-      .catch((err) => toast.error(err instanceof ApiError ? err.message : 'Error'))
+      .catch((err) => toast.error(errorMessage(err)))
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -40,7 +40,7 @@ export default function CustomerDetailPage() {
 
       <PageHeader
         title={`${customer.nombres} ${customer.apellidos}`}
-        subtitle={`${customer.total_estancias} estancias · ${formatCurrency(customer.total_gastado)}`}
+        subtitle={`${customer.total_estancias} estancias · ${formatBase(customer.total_gastado)}`}
         actions={<>
           <button
             type="button"
@@ -122,7 +122,7 @@ export default function CustomerDetailPage() {
                       {formatDateTime(b.fecha_entrada)} — {formatDateTime(b.fecha_salida)} · Hab. {b.room_numero}
                     </p>
                   </div>
-                  <p className="font-semibold tabular-nums text-sm">{formatCurrency(Number(b.importe_total))}</p>
+                  <p className="font-semibold tabular-nums text-sm">{formatCurrency(Number(b.importe_total), b.moneda)}</p>
                 </Link>
               ))}
             </div>

@@ -2,15 +2,17 @@ import { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { CaretLeft, CaretRight, ListBullets } from '@phosphor-icons/react';
-import { ApiError } from '../../../shared/api/client';
+import { errorMessage } from '../../../shared/lib/errors';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { calendarBookings, type Booking } from '../api/bookings.api';
 import { BookingStatusBadge } from '../../../shared/components/ui/StatusBadge';
+import { stayCoversDay, toLocalDateKey } from '../../../shared/lib/format';
 
 function startOfMonth(d: Date): Date { return new Date(d.getFullYear(), d.getMonth(), 1); }
 function endOfMonth(d: Date): Date { return new Date(d.getFullYear(), d.getMonth() + 1, 0); }
 function addMonths(d: Date, n: number): Date { return new Date(d.getFullYear(), d.getMonth() + n, 1); }
-function iso(d: Date): string { return d.toISOString().slice(0, 10); }
+// Ojo: toISOString() convierte a UTC y podia devolver el dia anterior.
+function iso(d: Date): string { return toLocalDateKey(d); }
 function sameDay(a: Date, b: Date): boolean { return a.toDateString() === b.toDateString(); }
 
 const MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -33,7 +35,7 @@ export default function BookingsCalendarPage() {
       const data = await calendarBookings(iso(from), iso(to));
       setBookings(data);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err, 'No se pudo cargar el calendario'));
     } finally { setLoading(false); }
   }
   useEffect(() => { void load(); }, [cursor]);
@@ -52,12 +54,12 @@ export default function BookingsCalendarPage() {
     return result;
   }, [monthStart]);
 
+  // Comparacion por DIA, no por instante. Las reservas se guardan con hora de
+  // entrada 14:00 y salida 11:00; compararlas contra la medianoche de la celda
+  // hacia que faltara el dia de llegada y sobrara el de salida (bug 2).
+  // Es la misma regla que ya usaba el Timeline, que si pintaba bien.
   function bookingsForDay(d: Date): Booking[] {
-    return bookings.filter((b) => {
-      const entrada = new Date(b.fecha_entrada);
-      const salida = new Date(b.fecha_salida);
-      return entrada <= d && salida > d;
-    });
+    return bookings.filter((b) => stayCoversDay(b.fecha_entrada, b.fecha_salida, d));
   }
 
   return (
@@ -110,7 +112,7 @@ export default function BookingsCalendarPage() {
       <div className="text-xs text-muted-foreground">
         Mostrando {bookings.filter((b) => {
           const entrada = new Date(b.fecha_entrada);
-          return entrada >= monthStart && entrada <= monthEnd;
+          return entrada >= monthStart && entrada < new Date(monthEnd.getFullYear(), monthEnd.getMonth(), monthEnd.getDate() + 1);
         }).length} reservas con entrada en {MONTHS[cursor.getMonth()]}.
         <span className="ml-2"><BookingStatusBadge status="confirmada" /> activas y pendientes</span>
       </div>

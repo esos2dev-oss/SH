@@ -1,6 +1,7 @@
 // Conciliacion bancaria: subir extracto, ver match automatico, conciliar manual.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { errorMessage } from '../../../shared/lib/errors';
 import { toast } from 'sonner';
 import { Upload, Bank, ArrowsLeftRight, CheckCircle, ArrowLeft, Sparkle } from '@phosphor-icons/react';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
@@ -8,7 +9,6 @@ import { Button } from '../../../shared/components/ui/button';
 import { Input } from '../../../shared/components/ui/input';
 import { Label } from '../../../shared/components/ui/label';
 import { SelectNative } from '../../../shared/components/ui/select-native';
-import { ApiError } from '../../../shared/api/client';
 import { listPayments, type PaymentPublic } from '../api/payments.api';
 import {
   uploadStatement, listStatements, listMovements, autoConfirm, getSuggestions, matchMovement,
@@ -38,7 +38,7 @@ export default function BankReconciliationPage() {
       const s = await listStatements();
       setStatements(s);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     } finally { setLoading(false); }
   }, []);
 
@@ -191,7 +191,7 @@ function StatementDetail({ statementId, statement, onBack }: { statementId: numb
       const m = await listMovements(statementId, onlyUnmatched);
       setMovs(m);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     } finally { setLoading(false); }
   }, [statementId, onlyUnmatched]);
 
@@ -204,7 +204,7 @@ function StatementDetail({ statementId, statement, onBack }: { statementId: numb
       toast.success(`${r.confirmed} pagos confirmados automaticamente.`);
       await load();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     }
   }
 
@@ -262,7 +262,7 @@ function MovementRow({ movement, onChanged }: { movement: BankMovement; onChange
       setPayments(ps);
       setShowSuggestions(true);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     }
   }
 
@@ -273,7 +273,7 @@ function MovementRow({ movement, onChanged }: { movement: BankMovement; onChange
       setShowSuggestions(false);
       await onChanged();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     }
   }
 

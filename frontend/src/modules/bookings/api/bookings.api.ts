@@ -22,6 +22,8 @@ export interface Booking {
 export interface AvailabilityRoom {
   id: number; numero: string; planta: string | null; room_type: string;
   tarifa_dia: number; tarifa_semana: number; tarifa_mes: number;
+  /** Moneda del room_type. Sin esto el formulario pintaba todas las tarifas en USD. */
+  moneda: string;
 }
 
 export async function listBookings(params?: {
@@ -58,31 +60,55 @@ export async function getBooking(id: number): Promise<Booking> {
   return data as Booking;
 }
 
-export async function calendarBookings(dateFrom: string, dateTo: string): Promise<Booking[]> {
-  const { data, error } = await supabase
+export async function calendarBookings(
+  dateFrom: string,
+  dateTo: string,
+  options?: { includeCancelled?: boolean },
+): Promise<Booking[]> {
+  let q = supabase
     .from('bookings_with_relations').select('*')
     .lt('fecha_entrada', dateTo).gt('fecha_salida', dateFrom);
-  if (error) throw new Error(error.message);
+  // Por defecto el calendario NO pinta canceladas ni no-shows: la habitacion
+  // esta libre y mostrarlas hacia creer que estaba ocupada.
+  if (!options?.includeCancelled) {
+    q = q.in('status', ['pendiente', 'confirmada', 'en_curso', 'finalizada']);
+  }
+  const { data, error } = await q;
+  if (error) throw error;
   return (data ?? []) as Booking[];
 }
 
 export async function availability(params: { dateFrom: string; dateTo: string; room_type_id?: number; huespedes?: number }): Promise<AvailabilityRoom[]> {
+  // Guard duro: con el rango invertido (salida antes que entrada) la consulta
+  // de ocupadas no devuelve nada y el formulario ofrecia TODAS las habitaciones
+  // como libres para una reserva imposible (bug 9).
+  if (new Date(params.dateTo) <= new Date(params.dateFrom)) {
+    throw new Error('La fecha de salida debe ser posterior a la de entrada.');
+  }
+
   const { data: occupied, error: e1 } = await supabase
     .from('bookings')
     .select('room_id')
     .lt('fecha_entrada', params.dateTo)
     .gt('fecha_salida', params.dateFrom)
     .in('status', ['pendiente','confirmada','en_curso']);
-  if (e1) throw new Error(e1.message);
+  if (e1) throw e1;
   const occupiedIds = (occupied ?? []).map((r) => r.room_id);
 
-  let q = supabase.from('rooms').select('id, numero, planta, room_type:room_types(id, nombre, tarifa_dia, tarifa_semana, tarifa_mes, capacidad)').eq('active', true);
+  let q = supabase
+    .from('rooms')
+    .select('id, numero, numero_sort, planta, room_type:room_types(id, nombre, tarifa_dia, tarifa_semana, tarifa_mes, capacidad, moneda)')
+    .eq('active', true)
+    // Una habitacion en mantenimiento o fuera de servicio no es "disponible".
+    .not('status', 'in', '(mantenimiento,fuera_servicio)')
+    .order('numero_sort', { ascending: true, nullsFirst: false })
+    .order('numero', { ascending: true });
   if (occupiedIds.length) q = q.not('id', 'in', `(${occupiedIds.join(',')})`);
   if (params.room_type_id) q = q.eq('room_type_id', params.room_type_id);
 
   const { data, error } = await q;
-  if (error) throw new Error(error.message);
-  type Row = { id: number; numero: string; planta: string | null; room_type: { nombre: string; tarifa_dia: number; tarifa_semana: number; tarifa_mes: number; capacidad: number } | null };
+  if (error) throw error;
+  type Row = { id: number; numero: string; planta: string | null; room_type: { nombre: string; tarifa_dia: number; tarifa_semana: number; tarifa_mes: number; capacidad: number; moneda: string } | null };
   const rows = (data ?? []) as unknown as Row[];
   return rows
     .filter((r) => !params.huespedes || (r.room_type?.capacidad ?? 0) >= params.huespedes)
@@ -92,6 +118,7 @@ export async function availability(params: { dateFrom: string; dateTo: string; r
       tarifa_dia: Number(r.room_type?.tarifa_dia ?? 0),
       tarifa_semana: Number(r.room_type?.tarifa_semana ?? 0),
       tarifa_mes: Number(r.room_type?.tarifa_mes ?? 0),
+      moneda: r.room_type?.moneda ?? 'USD',
     }));
 }
 
@@ -121,20 +148,73 @@ export async function confirmBooking(id: number): Promise<Booking> {
   return getBooking(id);
 }
 
+export interface RefundExposure {
+  /** Pagos confirmados que siguen en poder del hotel tras cancelar. */
+  count: number;
+  /** Total en moneda base (USD). */
+  total_base_usd: number;
+  /** Desglose por moneda tal como se cobro. */
+  por_moneda: Array<{ moneda: string; total: number }>;
+}
+
+/**
+ * Cuanto dinero cobrado quedaria pendiente de devolver si se cancela.
+ * Antes, cancelar dejaba la reserva en "Cancelada" mostrando "Pagado 112,00"
+ * sin ningun aviso, y el pago seguia contando en el cierre de caja (bug 19).
+ */
+export async function getRefundExposure(bookingId: number): Promise<RefundExposure> {
+  const { data, error } = await supabase
+    .from('booking_payments')
+    .select('monto, moneda, monto_base')
+    .eq('booking_id', bookingId)
+    .eq('status', 'confirmed');
+  if (error) throw error;
+
+  const rows = (data ?? []) as Array<{ monto: number; moneda: string; monto_base: number | null }>;
+  const map = new Map<string, number>();
+  let base = 0;
+  for (const r of rows) {
+    const m = (r.moneda || 'USD').toUpperCase();
+    map.set(m, (map.get(m) ?? 0) + Number(r.monto));
+    base += Number(r.monto_base ?? 0);
+  }
+  return {
+    count: rows.length,
+    total_base_usd: Math.round(base * 100) / 100,
+    por_moneda: Array.from(map, ([moneda, total]) => ({ moneda, total })),
+  };
+}
+
 export async function cancelBooking(id: number, reason: string): Promise<Booking> {
   const { error } = await supabase.from('bookings').update({
     status: 'cancelada',
     cancelled_at: new Date().toISOString(),
     cancelled_reason: reason,
   }).eq('id', id);
-  if (error) throw new Error(error.message);
+  if (error) throw error;
+  // El trigger tg_bookings_recalc_payment pone payment_status = 'reembolsado'
+  // y cash_closure_preview deja de contar estos pagos como caja del turno.
   return getBooking(id);
 }
 
 export async function noShowBooking(id: number): Promise<Booking> {
   const { error } = await supabase.from('bookings').update({ status: 'no_show' }).eq('id', id);
-  if (error) throw new Error(error.message);
+  if (error) throw error;
   return getBooking(id);
+}
+
+/** Cierra reservas vencidas que nunca hicieron check-in (bug 12). */
+export async function expireStaleBookings(): Promise<{ no_show: number }> {
+  const { data, error } = await supabase.rpc('expire_stale_bookings');
+  if (error) throw error;
+  return data as { no_show: number };
+}
+
+/** Motivo por el que NO se puede hacer check-in ahora, o null si se puede. */
+export async function checkinBlockReason(bookingId: number): Promise<string | null> {
+  const { data, error } = await supabase.rpc('checkin_window_violation', { p_booking_id: bookingId });
+  if (error) throw error;
+  return (data as string | null) ?? null;
 }
 
 export async function moveBooking(id: number, data: { room_id?: number; fecha_entrada?: string; fecha_salida?: string }): Promise<Booking> {

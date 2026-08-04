@@ -1,10 +1,10 @@
 // Lista global de pagos: filtros + acciones (confirmar/rechazar/ver detalle).
 
 import { useCallback, useEffect, useState } from 'react';
+import { errorMessage } from '../../../shared/lib/errors';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Check, X, CurrencyCircleDollar, Funnel, Receipt } from '@phosphor-icons/react';
-import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { EmptyState } from '../../../shared/components/ui/EmptyState';
 import { Input } from '../../../shared/components/ui/input';
@@ -46,7 +46,7 @@ export default function PaymentsPage() {
       setItems(r.data);
       setTotal(r.pagination.total);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     } finally { setLoading(false); }
   }, [filters]);
 
@@ -59,7 +59,7 @@ export default function PaymentsPage() {
       toast.success('Pago confirmado');
       await load();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     }
   }
 
@@ -78,7 +78,7 @@ export default function PaymentsPage() {
       toast.success('Pago rechazado');
       await load();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     }
   }
 

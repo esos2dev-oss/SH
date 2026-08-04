@@ -212,6 +212,15 @@ scripts/                    # Utilidades
 - Ingresos auto al cobrar reserva, egresos manuales con comprobante obligatorio
 - Codigos `LG-YYYY-NNNN` via `next_code('LG')`
 
+### Moneda base (regla transversal)
+
+- **USD es la moneda base del sistema.** Cualquier suma o comparacion de importes se hace en base, nunca sobre `monto` en crudo.
+- `exchange_rates(fecha, bs_per_usd, eur_per_usd)` guarda cuantas unidades de cada moneda equivalen a 1 USD.
+- Helpers en BD: `rate_for_currency(moneda, fecha)`, `to_base_usd(monto, moneda, fecha)`, `from_base_usd(...)`.
+- Todo pago guarda `monto` + `moneda` + `tasa_cambio` + `monto_base` (USD). Los dos ultimos los rellena el trigger `tg_booking_payments_fill_base`, que **aborta el cobro si no hay tasa** — es preferible fallar a contabilizar mal.
+- `bookings.importe_pagado` y `payment_status` los mantiene el trigger `tg_booking_payments_sync`. No escribirlos a mano.
+- Frontend: `formatCurrency(monto, moneda)` exige moneda explicita; `formatBase(monto)` para agregados. Conversiones via `modules/payments/lib/currency.ts`.
+
 ### Pagos (booking_payments)
 
 - N pagos por reserva (fraccionado). Sin constraint UNIQUE en `booking_id`
@@ -241,7 +250,7 @@ scripts/                    # Utilidades
 
 ### Comprobantes / archivos
 
-- Subida a Supabase Storage (`receipts`, `documents`, `signatures`, `bank-statements`)
+- Buckets reales declarados en `supabase/config.toml`: **`receipts`, `check-in-docs`, `room-photos`**
 - URLs firmadas con expiracion 15 min para visualizacion
 - Tipos permitidos: `image/jpeg`, `image/png`, `image/webp`, `application/pdf`
 - Tamaño maximo: 10 MB
@@ -250,8 +259,10 @@ scripts/                    # Utilidades
 ### Auditoria
 
 - `audit_log` con `before`/`after` JSONB, IP, user_agent
-- Cualquier accion sensible registra entrada
-- Solo admin/superadmin pueden consultarlo (RLS)
+- Lo alimenta el trigger generico `tg_audit()`, enganchado a bookings, customers, booking_payments, rooms, room_types, ledger_entries, exchange_rates, settings, profiles, cash_closures y check_ins
+- **Consultar siempre la vista `audit_log_with_user`** (hace el join con profiles); `audit_log` a pelo no trae el nombre
+- `profiles.last_login_at` lo actualiza la RPC `touch_last_login()`, que llama el frontend en el evento `SIGNED_IN`
+- Solo admin/superadmin pueden consultarlo (RLS; la vista usa `security_invoker`)
 
 ### Seguridad
 

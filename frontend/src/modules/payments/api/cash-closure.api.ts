@@ -5,10 +5,19 @@
 import { supabase } from '../../../shared/lib/supabase';
 
 export interface CashClosureTotals {
-  by_method: Record<string, { count: number; total_moneda: Record<string, number> }>;
-  total_confirmados: Record<string, number>;
-  total_por_confirmar: Record<string, number>;
+  moneda_base: string;
+  by_method: Record<string, {
+    count: number;
+    total_base_usd: number;
+    total_moneda: Record<string, number>;
+  }>;
+  total_confirmado_base_usd: number;
+  total_por_confirmar_base_usd: number;
+  /** Numero de pagos por confirmar (antes guardaba una suma de importes). */
+  pending_count: number;
   total_count: number;
+  /** Cobros de reservas que se cancelaron: no cuadran caja, requieren devolucion. */
+  cancelados: { count: number; total_base_usd: number };
 }
 
 export interface CashClosure {
@@ -18,25 +27,18 @@ export interface CashClosure {
   notas: string | null; signature_url: string | null; created_at: string;
 }
 
+// La agregacion vive ahora en la RPC cash_closure_preview. Motivos:
+//  - suma en moneda base ademas de por moneda (antes mezclaba EUR/USD/VES),
+//  - excluye los cobros de reservas canceladas (bug 19),
+//  - pending_count es un CONTEO y no una suma de importes (estaba mal).
 async function aggregate(params: { opened_at: string; closed_at?: string; user_id?: string }): Promise<CashClosureTotals> {
-  let q = supabase.from('booking_payments').select('method, status, monto, moneda').gte('pagado_at', params.opened_at);
-  if (params.closed_at) q = q.lte('pagado_at', params.closed_at);
-  if (params.user_id) q = q.eq('registered_by', params.user_id);
-  const { data, error } = await q;
-  if (error) throw new Error(error.message);
-
-  type Row = { method: string; status: string; monto: number; moneda: string };
-  const totals: CashClosureTotals = { by_method: {}, total_confirmados: {}, total_por_confirmar: {}, total_count: 0 };
-  for (const r of (data ?? []) as Row[]) {
-    totals.total_count++;
-    const m = totals.by_method[r.method] ?? { count: 0, total_moneda: {} };
-    m.count++;
-    m.total_moneda[r.moneda] = (m.total_moneda[r.moneda] ?? 0) + Number(r.monto);
-    totals.by_method[r.method] = m;
-    const bucket = r.status === 'confirmed' ? totals.total_confirmados : totals.total_por_confirmar;
-    bucket[r.moneda] = (bucket[r.moneda] ?? 0) + Number(r.monto);
-  }
-  return totals;
+  const { data, error } = await supabase.rpc('cash_closure_preview', {
+    p_opened_at: params.opened_at,
+    p_closed_at: params.closed_at ?? null,
+    p_user_id: params.user_id ?? null,
+  });
+  if (error) throw error;
+  return data as CashClosureTotals;
 }
 
 export async function previewClosure(params: { opened_at: string; closed_at?: string; user_id?: string }): Promise<CashClosureTotals> {
@@ -48,18 +50,18 @@ export async function closeShift(data: { opened_at: string; closed_at?: string; 
   if (!user) throw new Error('No autenticado');
   const totals = await aggregate({ opened_at: data.opened_at, closed_at: data.closed_at, user_id: data.user_id ?? user.id });
   const { data: codigo, error: cErr } = await supabase.rpc('next_code', { p_prefix: 'CC' });
-  if (cErr) throw new Error(cErr.message);
+  if (cErr) throw cErr;
   const { data: row, error } = await supabase.from('cash_closures').insert({
     codigo,
     user_id: data.user_id ?? user.id,
     opened_at: data.opened_at,
     closed_at: data.closed_at ?? new Date().toISOString(),
     totals,
-    pending_count: Object.values(totals.total_por_confirmar).length > 0 ? Object.values(totals.total_por_confirmar).reduce((a, b) => a + b, 0) : 0,
+    pending_count: totals.pending_count ?? 0,
     notas: data.notas ?? null,
     signature_url: data.signature_url ?? null,
   }).select('*').single();
-  if (error) throw new Error(error.message);
+  if (error) throw error;
   return { ...(row as CashClosure), user_name: null };
 }
 

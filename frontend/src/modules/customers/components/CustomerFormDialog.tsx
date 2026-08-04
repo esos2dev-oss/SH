@@ -5,7 +5,8 @@
 import { useState, type FormEvent } from 'react';
 import { toast } from 'sonner';
 import { X } from '@phosphor-icons/react';
-import { ApiError } from '../../../shared/api/client';
+import { errorMessage } from '../../../shared/lib/errors';
+import { toLocalDateKey } from '../../../shared/lib/format';
 import {
   createCustomer, updateCustomer,
   REFERRAL_SOURCE_LABELS,
@@ -35,6 +36,7 @@ export function CustomerFormDialog({ customer, onClose, onSaved }: Props) {
   const [notas, setNotas] = useState(customer?.notas ?? '');
   const [acceptsMarketing, setAcceptsMarketing] = useState(customer?.accepts_marketing ?? false);
   const [submitting, setSubmitting] = useState(false);
+  const todayKey = toLocalDateKey(new Date());
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -45,6 +47,24 @@ export function CustomerFormDialog({ customer, onClose, onSaved }: Props) {
     if (referralSource === 'otro' && !referralOther.trim()) {
       toast.error('Especifica como nos conocio');
       return;
+    }
+    // Se aceptaba una fecha de nacimiento en 2035 sin rechistar (bug 18).
+    // La BD tambien lo valida ahora, pero avisamos antes de enviar.
+    if (fechaNac) {
+      const nac = new Date(`${fechaNac}T00:00:00`);
+      if (Number.isNaN(nac.getTime())) {
+        toast.error('La fecha de nacimiento no es valida');
+        return;
+      }
+      const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+      if (nac > hoy) {
+        toast.error('La fecha de nacimiento no puede ser futura');
+        return;
+      }
+      if (nac.getFullYear() < 1900) {
+        toast.error('La fecha de nacimiento es demasiado antigua');
+        return;
+      }
     }
     setSubmitting(true);
     try {
@@ -70,7 +90,7 @@ export function CustomerFormDialog({ customer, onClose, onSaved }: Props) {
       toast.success(isEdit ? 'Huesped actualizado' : 'Huesped creado');
       onSaved(saved);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Error');
+      toast.error(errorMessage(err, 'No se pudo guardar el huesped'));
     } finally { setSubmitting(false); }
   }
 
@@ -104,7 +124,7 @@ export function CustomerFormDialog({ customer, onClose, onSaved }: Props) {
             <Input label="Telefono" value={telefono} onChange={setTelefono} />
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <Input label="Fecha de nacimiento" type="date" value={fechaNac} onChange={setFechaNac} />
+            <Input label="Fecha de nacimiento" type="date" value={fechaNac} onChange={setFechaNac} max={todayKey} min="1900-01-01" />
             <Input label="Nacionalidad" value={nacionalidad} onChange={setNacionalidad} />
           </div>
           <Input label="Direccion" value={direccion} onChange={setDireccion} />
@@ -147,11 +167,11 @@ function Label({ children }: { children: React.ReactNode }) {
   return <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 block px-1">{children}</label>;
 }
 
-function Input({ label, value, onChange, type = 'text', required, placeholder }: { label: string; value: string; onChange: (v: string) => void; type?: string; required?: boolean; placeholder?: string }) {
+function Input({ label, value, onChange, type = 'text', required, placeholder, min, max }: { label: string; value: string; onChange: (v: string) => void; type?: string; required?: boolean; placeholder?: string; min?: string; max?: string }) {
   return (
     <div>
       <Label>{label} {required && <span className="text-destructive">*</span>}</Label>
-      <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="w-full h-11 px-4 rounded-xl border border-border bg-muted/50 text-sm outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 focus:bg-card" />
+      <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} min={min} max={max} className="w-full h-11 px-4 rounded-xl border border-border bg-muted/50 text-sm outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 focus:bg-card" />
     </div>
   );
 }

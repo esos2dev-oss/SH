@@ -26,7 +26,7 @@ export interface Room {
   notas: string | null;
   photo_url: string | null;
   active: boolean;
-  room_type: { id: number; nombre: string; slug: string; tarifa_dia: number; capacidad: number };
+  room_type: { id: number; nombre: string; slug: string; tarifa_dia: number; capacidad: number; moneda: string };
   created_at: string;
   updated_at: string;
 }
@@ -41,12 +41,17 @@ export interface OccupancySummary {
 
 const ROOM_SELECT = `
   id, numero, planta, status, notas, photo_url, active, created_at, updated_at,
-  room_type:room_types ( id, nombre, slug, tarifa_dia, capacidad )
+  room_type:room_types ( id, nombre, slug, tarifa_dia, capacidad, moneda )
 `;
 
 // ---------- Rooms ----------
 export async function listRooms(params?: { status?: RoomStatus; room_type_id?: number; planta?: string; search?: string; active?: boolean }): Promise<Room[]> {
-  let q = supabase.from('rooms').select(ROOM_SELECT).order('numero');
+  // Orden numerico real: `numero` es VARCHAR, asi que ordenar por el daba
+  // 1, 10, 11, 12, 2, 3... `numero_sort` es una columna generada con la parte
+  // numerica (ver migracion 20260801000300).
+  let q = supabase.from('rooms').select(ROOM_SELECT)
+    .order('numero_sort', { ascending: true, nullsFirst: false })
+    .order('numero', { ascending: true });
   if (params?.status) q = q.eq('status', params.status);
   if (params?.room_type_id) q = q.eq('room_type_id', params.room_type_id);
   if (params?.planta) q = q.eq('planta', params.planta);

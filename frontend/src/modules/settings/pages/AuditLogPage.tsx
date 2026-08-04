@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
+import { errorMessage } from '../../../shared/lib/errors';
 import { toast } from 'sonner';
 import { ArrowClockwise, Notebook } from '@phosphor-icons/react';
-import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { EmptyState } from '../../../shared/components/ui/EmptyState';
 import { listAudit, type AuditEntry, type AuditAction } from '../api/audit.api';
@@ -36,7 +36,7 @@ export default function AuditLogPage() {
       const r = await listAudit(params);
       setItems(r.data);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(errorMessage(err));
     } finally { setLoading(false); }
   }
   useEffect(() => { void load(); }, [action, entity]);
