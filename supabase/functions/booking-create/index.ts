@@ -26,9 +26,12 @@ interface BookingInput {
   huespedes?: number;
   descuento_pct?: number;
   descuento_monto?: number;
+  desayunos_extra?: number;
   vehicle_plate?: string | null;
   notas?: string;
 }
+
+const BREAKFAST_PRICE = 7;
 
 function unidades(period: string, entrada: Date, salida: Date): number {
   const ms = salida.getTime() - entrada.getTime();
@@ -74,10 +77,13 @@ Deno.serve(async (req) => {
     if (tarifa == null) return errorResponse('La habitacion no tiene tarifa para ese periodo', 'VALIDATION_ERROR');
 
     const u = unidades(body.period, entrada, salida);
+    const dias = Math.max(1, Math.ceil((salida.getTime() - entrada.getTime()) / 86400000));
     const subtotal = Number(tarifa) * u;
     const descuentoPct = Number(body.descuento_pct ?? 0);
     const descuentoMonto = Number(body.descuento_monto ?? 0);
-    const total = Math.max(0, subtotal - (subtotal * descuentoPct) / 100 - descuentoMonto);
+    const desayunosExtra = Math.trunc(Number(body.desayunos_extra ?? 0));
+    const desayunosDelta = desayunosExtra * BREAKFAST_PRICE * dias;
+    const total = Math.max(0, subtotal - (subtotal * descuentoPct) / 100 - descuentoMonto + desayunosDelta);
 
     // 2. Generar codigo
     const { data: codigoData, error: codigoErr } = await client.rpc('next_code', { p_prefix: 'BK' });
@@ -97,6 +103,7 @@ Deno.serve(async (req) => {
         tarifa_aplicada: tarifa,
         descuento_pct: descuentoPct,
         descuento_monto: descuentoMonto,
+        desayunos_extra: desayunosExtra,
         importe_total: total,
         moneda: rt.moneda,
         status: 'pendiente',
