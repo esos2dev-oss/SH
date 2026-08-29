@@ -148,7 +148,11 @@ export default function RoomsPage() {
 
       {/* Grid */}
       {loading ? (
-        <div className="text-center py-12 text-sm text-muted-foreground">Cargando...</div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+          {Array.from({ length: 10 }).map((_, i) => (
+            <div key={i} className="h-40 rounded-2xl bg-muted animate-pulse" />
+          ))}
+        </div>
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={Bed}

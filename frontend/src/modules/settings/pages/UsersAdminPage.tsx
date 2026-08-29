@@ -28,7 +28,7 @@ interface UserPublic {
   created_at: string;
 }
 
-const ROLES: Role[] = ['superadmin', 'admin', 'recepcion', 'limpieza', 'contabilidad'];
+const ROLES: Role[] = ['superadmin', 'admin', 'recepcion', 'limpieza', 'contabilidad', 'restaurante'];
 
 const ROLE_BADGES: Record<Role, string> = {
   superadmin: 'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-800',
@@ -36,6 +36,7 @@ const ROLE_BADGES: Record<Role, string> = {
   recepcion: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800',
   limpieza: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800',
   contabilidad: 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/30 dark:text-orange-400 dark:border-orange-800',
+  restaurante: 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-800',
 };
 
 export default function UsersAdminPage() {

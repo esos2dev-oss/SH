@@ -10,7 +10,7 @@ import {
 } from 'react';
 import { supabase } from '../shared/lib/supabase';
 
-export type Role = 'superadmin' | 'admin' | 'recepcion' | 'limpieza' | 'contabilidad';
+export type Role = 'superadmin' | 'admin' | 'recepcion' | 'limpieza' | 'contabilidad' | 'restaurante';
 
 export interface AuthUser {
   id: string;

@@ -5,7 +5,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   Bed, CalendarCheck, DoorOpen, Broom, Cake,
-  CurrencyCircleDollar, WarningCircle, ArrowsClockwise, Phone,
+  CurrencyCircleDollar, ArrowsClockwise, Phone,
   Plus, UserPlus, ClipboardText, Stack, ChartLineUp, CalendarBlank,
   type IconProps,
 } from '@phosphor-icons/react';
@@ -19,16 +19,10 @@ import {
   type DepartureToday,
   type CleaningPending,
   type BirthdayToday,
-  type PendingPaymentItem,
-  type BookingWithoutPaymentItem,
   type RoomBoardItem,
 } from '../api/dashboard.api';
 import { BookingFormDialog } from '../../bookings/components/BookingFormDialog';
 import { useQuickPayment, useOnPaymentSaved } from '../../payments/hooks/QuickPaymentProvider';
-import { METHOD_LABELS } from '../../payments/lib/labels';
-import type { PaymentMethod } from '../../payments/api/payments.api';
-import { confirmPayment, rejectPayment } from '../../payments/api/payments.api';
-import { useDialog } from '../../../shared/components/ui/dialog-system';
 import { formatCurrency } from '../../../shared/lib/format';
 import { cn } from '../../../shared/lib/cn';
 
@@ -92,20 +86,19 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
         <QuickAction icon={Plus} label="Nueva reserva" onClick={() => setShowBookingForm(true)} primary />
         <QuickAction icon={CurrencyCircleDollar} label="Registrar pago" onClick={() => quickPay.open()} />
-        <QuickAction icon={UserPlus} label="Nuevo huesped" onClick={() => navigate('/customers')} />
-        <QuickAction icon={ClipboardText} label="Reservas" onClick={() => navigate('/bookings')} />
-        <QuickAction icon={Stack} label="Cierre caja" onClick={() => navigate('/payments/cash-closure')} />
-        <QuickAction icon={ChartLineUp} label="Reportes" onClick={() => navigate('/reports')} />
+        <QuickAction icon={UserPlus} label="Nuevo huesped" onClick={() => navigate('/huespedes')} />
+        <QuickAction icon={ClipboardText} label="Reservas" onClick={() => navigate('/reservas')} />
+        <QuickAction icon={Stack} label="Cierre caja" onClick={() => navigate('/pagos/cierre-caja')} />
+        <QuickAction icon={ChartLineUp} label="Reportes" onClick={() => navigate('/reportes')} />
       </div>
 
       {/* KPIs operativos */}
       {data && (
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Kpi icon={CalendarCheck} label="Llegadas hoy" value={data.kpis.arrivals_count} />
           <Kpi icon={DoorOpen} label="Salidas hoy" value={data.kpis.departures_count} />
           <Kpi icon={Bed} label="Ocupacion hoy" value={`${data.kpis.occupancy_pct}%`} sub={`${data.kpis.rooms_occupied}/${data.kpis.rooms_total}`} />
           <Kpi icon={Broom} label="Limpiezas" value={data.kpis.cleanings_pending_count} amber={data.kpis.cleanings_pending_count > 0} />
-          <Kpi icon={CurrencyCircleDollar} label="Pagos pendientes" value={data.kpis.pending_payments_count} amber={data.kpis.pending_payments_count > 0} />
         </div>
       )}
 
@@ -128,9 +121,20 @@ export default function DashboardPage() {
       )}
 
       {loading && !data ? (
-        <p className="text-center py-12 text-sm text-muted-foreground">Cargando panel…</p>
-      ) : !data ? null : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <div className="lg:col-span-3 space-y-4">
+            {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-40 rounded-2xl bg-muted animate-pulse" />)}
+          </div>
+          <div className="lg:col-span-6 space-y-4">
+            <div className="h-56 rounded-2xl bg-muted animate-pulse" />
+            <div className="h-32 rounded-2xl bg-muted animate-pulse" />
+          </div>
+          <div className="lg:col-span-3 space-y-4">
+            {Array.from({ length: 2 }).map((_, i) => <div key={i} className="h-40 rounded-2xl bg-muted animate-pulse" />)}
+          </div>
+        </div>
+      ) : !data ? null : (
+        <div className="grid grid-cols-1 lg:grid-cols-10 gap-4">
           {/* Columna izquierda: Hoy */}
           <div className="lg:col-span-3 space-y-4">
             <Section title="Llegadas" icon={CalendarCheck} count={data.today.arrivals.length}>
@@ -177,34 +181,15 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Columna central: Tablero de habitaciones */}
-          <div className="lg:col-span-6 space-y-3">
+          {/* Columna central+derecha: Tablero de habitaciones (full width) */}
+          <div className="lg:col-span-7 space-y-3">
             <Section title="Tablero de habitaciones" icon={Bed} count={data.rooms_board.length}>
               {data.rooms_board.length === 0 ? (
                 <EmptyHint text="Sin habitaciones activas" />
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
                   {data.rooms_board.map((r) => <RoomCard key={r.room_id} item={r} />)}
                 </div>
-              )}
-            </Section>
-          </div>
-
-          {/* Columna derecha: Inbox */}
-          <div className="lg:col-span-3 space-y-4">
-            <Section title="Pagos por confirmar" icon={CurrencyCircleDollar} count={data.inbox.pending_payments.length}>
-              {data.inbox.pending_payments.length === 0 ? (
-                <EmptyHint text="Todo conciliado" />
-              ) : (
-                data.inbox.pending_payments.map((p) => <PendingPaymentCard key={p.payment_id} item={p} onChanged={load} />)
-              )}
-            </Section>
-
-            <Section title="Reservas sin pago (24h)" icon={WarningCircle} count={data.inbox.bookings_without_payment.length}>
-              {data.inbox.bookings_without_payment.length === 0 ? (
-                <EmptyHint text="Sin alertas" />
-              ) : (
-                data.inbox.bookings_without_payment.map((b) => <NoPaymentCard key={b.booking_id} item={b} />)
               )}
             </Section>
           </div>
@@ -217,7 +202,7 @@ export default function DashboardPage() {
           onSaved={(bookingId) => {
             setShowBookingForm(false);
             void load();
-            navigate(`/bookings/${bookingId}`);
+            navigate(`/reservas/${bookingId}`);
           }}
         />
       )}
@@ -300,7 +285,7 @@ function EmptyHint({ text }: { text: string }) {
 function ArrivalCard({ item, onPay }: { item: ArrivalToday; onPay: () => void }) {
   const hora = new Date(item.fecha_entrada).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' });
   return (
-    <Link to={`/bookings/${item.booking_id}`} className="block rounded-lg border border-border bg-background p-2.5 hover:border-primary/40 hover:shadow-sm transition-all">
+    <Link to={`/reservas/${item.booking_id}`} className="block rounded-lg border border-border bg-background p-2.5 hover:border-primary/40 hover:shadow-sm transition-all">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] font-bold tabular-nums">{hora}</span>
         <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Hab. {item.room_numero}</span>
@@ -327,7 +312,7 @@ function ArrivalCard({ item, onPay }: { item: ArrivalToday; onPay: () => void })
 function DepartureCard({ item }: { item: DepartureToday }) {
   const hora = new Date(item.fecha_salida).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' });
   return (
-    <Link to={`/bookings/${item.booking_id}`} className="block rounded-lg border border-border bg-background p-2.5 hover:border-primary/40 hover:shadow-sm transition-all">
+    <Link to={`/reservas/${item.booking_id}`} className="block rounded-lg border border-border bg-background p-2.5 hover:border-primary/40 hover:shadow-sm transition-all">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] font-bold tabular-nums">{hora}</span>
         <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Hab. {item.room_numero}</span>
@@ -345,7 +330,7 @@ function DepartureCard({ item }: { item: DepartureToday }) {
 
 function CleaningCard({ item }: { item: CleaningPending }) {
   return (
-    <Link to="/rooms" className="block rounded-lg border border-border bg-background p-2.5 hover:border-primary/40 transition-all">
+    <Link to="/habitaciones" className="block rounded-lg border border-border bg-background p-2.5 hover:border-primary/40 transition-all">
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold">Hab. {item.numero}</p>
         <p className="text-[11px] text-muted-foreground tabular-nums">{Math.floor(item.minutes_in_state / 60) > 0 ? `${Math.floor(item.minutes_in_state / 60)}h ` : ''}{item.minutes_in_state % 60}m</p>
@@ -356,7 +341,7 @@ function CleaningCard({ item }: { item: CleaningPending }) {
 
 function BirthdayCard({ item }: { item: BirthdayToday }) {
   return (
-    <Link to={`/customers/${item.customer_id}`} className="block rounded-lg border border-border bg-background p-2.5 hover:border-primary/40 transition-all">
+    <Link to={`/huespedes/${item.customer_id}`} className="block rounded-lg border border-border bg-background p-2.5 hover:border-primary/40 transition-all">
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold truncate">{item.nombre}</p>
         <span className="text-[10px] font-bold bg-pink-50 dark:bg-pink-950/30 text-pink-700 dark:text-pink-300 rounded px-1.5">{item.edad} anos</span>
@@ -373,7 +358,7 @@ function RoomCard({ item }: { item: RoomBoardItem }) {
     : null;
   return (
     <Link
-      to={item.current_booking ? `/bookings/${item.current_booking.id}` : `/rooms`}
+      to={item.current_booking ? `/reservas/${item.current_booking.id}` : `/habitaciones`}
       className={cn('block rounded-xl border border-border p-2.5 hover:shadow-md transition-all', style.bg)}
     >
       <div className="flex items-center justify-between">
@@ -398,63 +383,3 @@ function RoomCard({ item }: { item: RoomBoardItem }) {
   );
 }
 
-function PendingPaymentCard({ item, onChanged }: { item: PendingPaymentItem; onChanged: () => Promise<void> }) {
-  const dialog = useDialog();
-  async function handleConfirm() {
-    try {
-      await confirmPayment(item.payment_id);
-      toast.success('Pago confirmado');
-      await onChanged();
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
-    }
-  }
-  async function handleReject() {
-    const reason = await dialog.prompt({
-      title: 'Rechazar pago',
-      message: 'Indica el motivo del rechazo. Quedara registrado en el audit log.',
-      placeholder: 'Ej: referencia no encontrada en el extracto',
-      required: true,
-      multiline: true,
-      maxLength: 500,
-    });
-    if (!reason) return;
-    try {
-      await rejectPayment(item.payment_id, reason);
-      toast.success('Pago rechazado');
-      await onChanged();
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
-    }
-  }
-  return (
-    <div className="rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20 p-2.5">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-bold tabular-nums">{formatCurrency(item.monto, item.moneda)}</p>
-        <span className="text-[10px] text-muted-foreground uppercase">{METHOD_LABELS[item.method as PaymentMethod] ?? item.method}</span>
-      </div>
-      {item.booking_codigo && <p className="text-[11px] text-muted-foreground">{item.booking_codigo}</p>}
-      {item.customer_nombre && <p className="text-[10px] truncate">{item.customer_nombre}</p>}
-      {item.referencia && <p className="text-[10px] text-muted-foreground">ref {item.referencia}</p>}
-      <div className="flex gap-1.5 mt-2">
-        <button type="button" onClick={handleConfirm} className="flex-1 text-[10px] font-bold uppercase bg-emerald-600 text-white rounded px-2 py-1 hover:bg-emerald-700">Confirmar</button>
-        <button type="button" onClick={handleReject} className="flex-1 text-[10px] font-bold uppercase bg-card border border-border rounded px-2 py-1 hover:bg-muted">Rechazar</button>
-      </div>
-    </div>
-  );
-}
-
-function NoPaymentCard({ item }: { item: BookingWithoutPaymentItem }) {
-  return (
-    <Link to={`/bookings/${item.booking_id}`} className="block rounded-lg border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 p-2.5 hover:bg-red-50 dark:hover:bg-red-950/30 transition-all">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-semibold truncate">{item.codigo}</p>
-        <span className="text-[10px] font-bold text-red-700 dark:text-red-300 tabular-nums whitespace-nowrap">
-          en {item.hours_until_checkin.toFixed(1)}h
-        </span>
-      </div>
-      <p className="text-[11px] text-muted-foreground truncate">{item.customer_nombre} · Hab. {item.room_numero}</p>
-      <p className="text-[10px] text-muted-foreground tabular-nums">{formatCurrency(item.importe_total, item.moneda)}</p>
-    </Link>
-  );
-}

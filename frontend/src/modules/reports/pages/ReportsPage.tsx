@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { ArrowDown, ArrowUp, Receipt, ChartLineUp, ChartBar, DownloadSimple, CalendarBlank } from '@phosphor-icons/react';
 import { cn } from '../../../shared/lib/cn';
-import { ApiError } from '../../../shared/api/client';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import {
   financialReport, financialCsvUrl, customersReport, kpisReport, paymentMethodsReport,
@@ -46,26 +45,40 @@ export default function ReportsPage() {
   const [customers, setCustomers] = useState<CustomersReport | null>(null);
   const [kpis, setKpis] = useState<KpisReport | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodsReport | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loadingFinancial, setLoadingFinancial] = useState(true);
+  const [loadingKpis, setLoadingKpis] = useState(true);
+  const [, setLoadingCustomers] = useState(true);
+  const [, setLoadingPayments] = useState(true);
 
-  async function load() {
-    setLoading(true);
-    try {
-      const [f, c, k, pm] = await Promise.all([
-        financialReport({ period, dateFrom, dateTo }),
-        customersReport(),
-        kpisReport({ dateFrom, dateTo }),
-        paymentMethodsReport({ dateFrom, dateTo }),
-      ]);
-      setFinancial(f);
-      setCustomers(c);
-      setKpis(k);
-      setPaymentMethods(pm);
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
-    } finally { setLoading(false); }
-  }
-  useEffect(() => { void load(); }, [period, dateFrom, dateTo]);
+  useEffect(() => {
+    // Lanzamos las 4 queries en paralelo pero cada una actualiza su seccion
+    // apenas responde — el usuario ve datos incrementalmente en vez de esperar
+    // a que TODAS terminen (importante con latencia alta a Singapur).
+    let cancel = false;
+    setLoadingFinancial(true); setLoadingKpis(true); setLoadingCustomers(true); setLoadingPayments(true);
+
+    financialReport({ period, dateFrom, dateTo })
+      .then((r) => { if (!cancel) setFinancial(r); })
+      .catch((e) => { if (!cancel) toast.error(e instanceof Error ? `Financiero: ${e.message}` : 'Error financiero'); })
+      .finally(() => { if (!cancel) setLoadingFinancial(false); });
+
+    kpisReport({ dateFrom, dateTo })
+      .then((r) => { if (!cancel) setKpis(r); })
+      .catch((e) => { if (!cancel) toast.error(e instanceof Error ? `KPIs: ${e.message}` : 'Error KPIs'); })
+      .finally(() => { if (!cancel) setLoadingKpis(false); });
+
+    customersReport()
+      .then((r) => { if (!cancel) setCustomers(r); })
+      .catch((e) => { if (!cancel) toast.error(e instanceof Error ? `Clientes: ${e.message}` : 'Error clientes'); })
+      .finally(() => { if (!cancel) setLoadingCustomers(false); });
+
+    paymentMethodsReport({ dateFrom, dateTo })
+      .then((r) => { if (!cancel) setPaymentMethods(r); })
+      .catch((e) => { if (!cancel) toast.error(e instanceof Error ? `Metodos pago: ${e.message}` : 'Error metodos'); })
+      .finally(() => { if (!cancel) setLoadingPayments(false); });
+
+    return () => { cancel = true; };
+  }, [period, dateFrom, dateTo]);
 
   return (
     <div className="space-y-6">
@@ -116,7 +129,11 @@ export default function ReportsPage() {
       </div>
 
       {/* KPIs hoteleros */}
-      {kpis && (
+      {loadingKpis ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[1,2,3,4].map((i) => <div key={i} className="h-24 rounded-2xl bg-muted animate-pulse" />)}
+        </div>
+      ) : kpis && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Kpi color="blue" icon={ChartLineUp} label="Ocupacion" value={`${kpis.occupancyPct.toFixed(1)}%`} />
           <Kpi color="emerald" icon={Receipt} label="ADR" value={kpis.adr.toFixed(2)} />
@@ -125,8 +142,13 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {loading ? (
-        <div className="text-center py-12 text-sm text-muted-foreground">Cargando...</div>
+      {loadingFinancial ? (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[1,2,3,4].map((i) => <div key={i} className="h-24 rounded-2xl bg-muted animate-pulse" />)}
+          </div>
+          <div className="h-64 rounded-3xl bg-muted animate-pulse" />
+        </div>
       ) : financial && (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

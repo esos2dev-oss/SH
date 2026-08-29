@@ -1,5 +1,5 @@
-import { createBrowserRouter, Navigate } from 'react-router-dom';
-import { lazy, Suspense, type ReactNode } from 'react';
+import { createBrowserRouter, Navigate, useRouteError } from 'react-router-dom';
+import { lazy, Suspense, useEffect, type ReactNode } from 'react';
 
 import { AuthLayout } from './layouts/AuthLayout';
 import { AppLayout } from './layouts/AppLayout';
@@ -7,10 +7,11 @@ import { ProtectedRoute } from './shared/components/layout/ProtectedRoute';
 import { RoleRoute } from './shared/components/layout/RoleRoute';
 import { useAuth } from './contexts/AuthContext';
 
-// Index redirect: rol limpieza va siempre a /cleaning.
+// Index redirect: rol limpieza va siempre a /limpieza.
 function IndexRoute({ children }: { children: ReactNode }) {
   const { user } = useAuth();
-  if (user?.role === 'limpieza') return <Navigate to="/cleaning" replace />;
+  if (user?.role === 'limpieza') return <Navigate to="/limpieza" replace />;
+  if (user?.role === 'restaurante') return <Navigate to="/desayunos" replace />;
   return <>{children}</>;
 }
 
@@ -48,6 +49,10 @@ const UsersAdminPage = lazy(() => import('./modules/settings/pages/UsersAdminPag
 const AuditLogPage = lazy(() => import('./modules/settings/pages/AuditLogPage'));
 const SettingsHubPage = lazy(() => import('./modules/settings/pages/SettingsHubPage'));
 const HelpPage = lazy(() => import('./modules/help/pages/HelpPage'));
+const MaintenancePage = lazy(() => import('./modules/maintenance/pages/MaintenancePage'));
+const BreakfastPage = lazy(() => import('./modules/breakfast/pages/BreakfastPage'));
+const AttendancePage = lazy(() => import('./modules/attendance/pages/AttendancePage'));
+const PlantaPage = lazy(() => import('./modules/planta/pages/PlantaPage'));
 
 const NotFoundPage = lazy(() => import('./shared/pages/NotFoundPage'));
 
@@ -59,114 +64,123 @@ function Suspended({ children }: { children: ReactNode }) {
   );
 }
 
+// Cuando un lazy() falla (chunk hash viejo tras deploy nuevo), react-router lo captura
+// en su propio errorElement y NO lo re-lanza a window.error. Aqui detectamos y recargamos.
+function isChunkError(err: unknown): boolean {
+  const m = (err instanceof Error ? err.message : String(err ?? '')).toLowerCase();
+  return m.includes('failed to fetch dynamically imported module') ||
+         m.includes('importing a module script failed') ||
+         m.includes('unable to preload css') ||
+         m.includes('chunkloaderror');
+}
+const CHUNK_RELOAD_FLAG = 'sh-chunk-reload';
+function RouteErrorBoundary() {
+  const err = useRouteError();
+  useEffect(() => {
+    if (isChunkError(err) && !sessionStorage.getItem(CHUNK_RELOAD_FLAG)) {
+      sessionStorage.setItem(CHUNK_RELOAD_FLAG, '1');
+      window.location.reload();
+    }
+  }, [err]);
+  if (isChunkError(err)) {
+    return <div className="flex items-center justify-center py-20"><div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" /></div>;
+  }
+  const msg = err instanceof Error ? err.message : String(err ?? 'Error inesperado');
+  return (
+    <div className="max-w-lg mx-auto mt-16 p-6 bg-card border border-border rounded-2xl text-center space-y-4">
+      <h1 className="text-lg font-bold">Ocurrio un error</h1>
+      <p className="text-sm text-muted-foreground break-words">{msg}</p>
+      <button onClick={() => { sessionStorage.removeItem(CHUNK_RELOAD_FLAG); window.location.href = '/sh/'; }} className="h-10 px-6 bg-primary text-primary-foreground rounded-xl font-semibold text-sm">Volver al inicio</button>
+    </div>
+  );
+}
+
 export const router = createBrowserRouter(
   [
     {
       element: <AuthLayout />,
+      errorElement: <RouteErrorBoundary />,
       children: [
         { path: '/login', element: <Suspended><LoginPage /></Suspended> },
-        { path: '/set-password', element: <Suspended><SetPasswordPage /></Suspended> },
+        { path: '/establecer-clave', element: <Suspended><SetPasswordPage /></Suspended> },
       ],
     },
     {
       element: <ProtectedRoute><AppLayout /></ProtectedRoute>,
+      errorElement: <RouteErrorBoundary />,
       children: [
         { index: true, element: <IndexRoute><Suspended><DashboardPage /></Suspended></IndexRoute> },
 
-        // Rooms
-        { path: 'rooms', element: <Suspended><RoomsPage /></Suspended> },
-        {
-          path: 'rooms/types',
-          element: <RoleRoute allowed={['superadmin', 'admin']}><Suspended><RoomTypesPage /></Suspended></RoleRoute>,
-        },
+        // === URLs en espanol ===
+        // Habitaciones
+        { path: 'habitaciones', element: <Suspended><RoomsPage /></Suspended> },
+        { path: 'habitaciones/tipos', element: <RoleRoute allowed={['superadmin', 'admin']}><Suspended><RoomTypesPage /></Suspended></RoleRoute> },
 
-        // Customers
-        {
-          path: 'customers',
-          element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'contabilidad']}><Suspended><CustomersPage /></Suspended></RoleRoute>,
-        },
-        {
-          path: 'customers/:id',
-          element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'contabilidad']}><Suspended><CustomerDetailPage /></Suspended></RoleRoute>,
-        },
+        // Huespedes
+        { path: 'huespedes', element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'contabilidad']}><Suspended><CustomersPage /></Suspended></RoleRoute> },
+        { path: 'huespedes/:id', element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'contabilidad']}><Suspended><CustomerDetailPage /></Suspended></RoleRoute> },
 
-        // Bookings
-        {
-          path: 'bookings',
-          element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'contabilidad']}><Suspended><BookingsPage /></Suspended></RoleRoute>,
-        },
-        {
-          path: 'bookings/calendar',
-          element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion']}><Suspended><BookingsCalendarPage /></Suspended></RoleRoute>,
-        },
-        {
-          path: 'bookings/timeline',
-          element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion']}><Suspended><OccupancyTimelinePage /></Suspended></RoleRoute>,
-        },
-        {
-          path: 'bookings/:id',
-          element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'contabilidad']}><Suspended><BookingDetailPage /></Suspended></RoleRoute>,
-        },
+        // Reservas
+        { path: 'reservas', element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'contabilidad']}><Suspended><BookingsPage /></Suspended></RoleRoute> },
+        { path: 'reservas/calendario', element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion']}><Suspended><BookingsCalendarPage /></Suspended></RoleRoute> },
+        { path: 'reservas/timeline', element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion']}><Suspended><OccupancyTimelinePage /></Suspended></RoleRoute> },
+        { path: 'reservas/:id', element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'contabilidad']}><Suspended><BookingDetailPage /></Suspended></RoleRoute> },
 
-        // Check-ins
-        {
-          path: 'check-ins/new/:bookingId',
-          element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion']}><Suspended><CheckInPage /></Suspended></RoleRoute>,
-        },
-        {
-          path: 'check-ins/:bookingId',
-          element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'contabilidad']}><Suspended><CheckOutPage /></Suspended></RoleRoute>,
-        },
-        {
-          path: 'cleaning',
-          element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'limpieza']}><Suspended><CleaningPage /></Suspended></RoleRoute>,
-        },
+        // Check-in / Check-out
+        { path: 'check-in/nuevo/:bookingId', element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion']}><Suspended><CheckInPage /></Suspended></RoleRoute> },
+        { path: 'check-in/:bookingId', element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'contabilidad']}><Suspended><CheckOutPage /></Suspended></RoleRoute> },
+        { path: 'limpieza', element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'limpieza']}><Suspended><CleaningPage /></Suspended></RoleRoute> },
+        { path: 'mantenimiento', element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'limpieza', 'contabilidad']}><Suspended><MaintenancePage /></Suspended></RoleRoute> },
 
         // Pagos
-        {
-          path: 'payments',
-          element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'contabilidad']}><Suspended><PaymentsPage /></Suspended></RoleRoute>,
-        },
-        {
-          path: 'payments/bank',
-          element: <RoleRoute allowed={['superadmin', 'admin', 'contabilidad']}><Suspended><BankReconciliationPage /></Suspended></RoleRoute>,
-        },
-        {
-          path: 'payments/cash-closure',
-          element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'contabilidad']}><Suspended><CashClosurePage /></Suspended></RoleRoute>,
-        },
-        {
-          path: 'payments/settings',
-          element: <RoleRoute allowed={['superadmin', 'admin']}><Suspended><PaymentsSettingsPage /></Suspended></RoleRoute>,
-        },
+        { path: 'pagos', element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'contabilidad']}><Suspended><PaymentsPage /></Suspended></RoleRoute> },
+        { path: 'pagos/conciliacion', element: <RoleRoute allowed={['superadmin', 'admin', 'contabilidad']}><Suspended><BankReconciliationPage /></Suspended></RoleRoute> },
+        { path: 'pagos/cierre-caja', element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'contabilidad']}><Suspended><CashClosurePage /></Suspended></RoleRoute> },
+        { path: 'pagos/configuracion', element: <RoleRoute allowed={['superadmin', 'admin']}><Suspended><PaymentsSettingsPage /></Suspended></RoleRoute> },
 
-        // ERP
-        {
-          path: 'ledger',
-          element: <RoleRoute allowed={['superadmin', 'admin', 'contabilidad']}><Suspended><LedgerPage /></Suspended></RoleRoute>,
-        },
-        {
-          path: 'reports',
-          element: <RoleRoute allowed={['superadmin', 'admin', 'contabilidad']}><Suspended><ReportsPage /></Suspended></RoleRoute>,
-        },
+        // Finanzas
+        { path: 'finanzas', element: <RoleRoute allowed={['superadmin', 'admin', 'contabilidad']}><Suspended><LedgerPage /></Suspended></RoleRoute> },
+        { path: 'reportes', element: <RoleRoute allowed={['superadmin', 'admin', 'contabilidad']}><Suspended><ReportsPage /></Suspended></RoleRoute> },
 
-        // Ayuda — accesible para todos los roles autenticados
         { path: 'ayuda', element: <Suspended><HelpPage /></Suspended> },
 
-        // Profile + admin
-        { path: 'profile', element: <Suspended><ProfilePage /></Suspended> },
-        {
-          path: 'settings',
-          element: <RoleRoute allowed={['superadmin', 'admin']}><Suspended><SettingsHubPage /></Suspended></RoleRoute>,
-        },
-        {
-          path: 'settings/users',
-          element: <RoleRoute allowed={['superadmin']}><Suspended><UsersAdminPage /></Suspended></RoleRoute>,
-        },
-        {
-          path: 'settings/audit',
-          element: <RoleRoute allowed={['superadmin', 'admin']}><Suspended><AuditLogPage /></Suspended></RoleRoute>,
-        },
+        // Desayunos
+        { path: 'desayunos', element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'contabilidad']}><Suspended><BreakfastPage /></Suspended></RoleRoute> },
+
+        // Asistencia empleados (todos los roles pueden marcar entrada/salida)
+        { path: 'asistencia', element: <Suspended><AttendancePage /></Suspended> },
+
+        // Planta electrica (generador)
+        { path: 'planta', element: <RoleRoute allowed={['superadmin', 'admin', 'recepcion', 'limpieza', 'contabilidad']}><Suspended><PlantaPage /></Suspended></RoleRoute> },
+
+        // Perfil + configuracion
+        { path: 'perfil', element: <Suspended><ProfilePage /></Suspended> },
+        { path: 'configuracion', element: <RoleRoute allowed={['superadmin', 'admin']}><Suspended><SettingsHubPage /></Suspended></RoleRoute> },
+        { path: 'configuracion/usuarios', element: <RoleRoute allowed={['superadmin']}><Suspended><UsersAdminPage /></Suspended></RoleRoute> },
+        { path: 'configuracion/auditoria', element: <RoleRoute allowed={['superadmin', 'admin']}><Suspended><AuditLogPage /></Suspended></RoleRoute> },
+
+        // === Redirects retrocompatibilidad (bookmarks/enlaces viejos en ingles) ===
+        { path: 'rooms', element: <Navigate to="/habitaciones" replace /> },
+        { path: 'rooms/types', element: <Navigate to="/habitaciones/tipos" replace /> },
+        { path: 'customers', element: <Navigate to="/huespedes" replace /> },
+        { path: 'customers/:id', element: <Navigate to="/huespedes/:id" replace /> },
+        { path: 'bookings', element: <Navigate to="/reservas" replace /> },
+        { path: 'bookings/calendar', element: <Navigate to="/reservas/calendario" replace /> },
+        { path: 'bookings/timeline', element: <Navigate to="/reservas/timeline" replace /> },
+        { path: 'bookings/:id', element: <Navigate to="/reservas/:id" replace /> },
+        { path: 'check-ins/new/:bookingId', element: <Navigate to="/check-in/nuevo/:bookingId" replace /> },
+        { path: 'check-ins/:bookingId', element: <Navigate to="/check-in/:bookingId" replace /> },
+        { path: 'cleaning', element: <Navigate to="/limpieza" replace /> },
+        { path: 'payments', element: <Navigate to="/pagos" replace /> },
+        { path: 'payments/bank', element: <Navigate to="/pagos/conciliacion" replace /> },
+        { path: 'payments/cash-closure', element: <Navigate to="/pagos/cierre-caja" replace /> },
+        { path: 'payments/settings', element: <Navigate to="/pagos/configuracion" replace /> },
+        { path: 'ledger', element: <Navigate to="/finanzas" replace /> },
+        { path: 'reports', element: <Navigate to="/reportes" replace /> },
+        { path: 'profile', element: <Navigate to="/perfil" replace /> },
+        { path: 'settings', element: <Navigate to="/configuracion" replace /> },
+        { path: 'settings/users', element: <Navigate to="/configuracion/usuarios" replace /> },
+        { path: 'settings/audit', element: <Navigate to="/configuracion/auditoria" replace /> },
 
         { path: '*', element: <Suspended><NotFoundPage /></Suspended> },
       ],

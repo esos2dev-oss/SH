@@ -44,14 +44,14 @@ export function CommandPalette({ open, onClose }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const commands: Command[] = [
-    { kind: 'action', id: 'new-booking', label: 'Nueva reserva', hint: 'Tecla N', icon: <Plus size={14} />, keywords: ['nueva', 'reserva', 'crear'], action: () => navigate('/bookings?new=1') },
+    { kind: 'action', id: 'new-booking', label: 'Nueva reserva', hint: 'Tecla N', icon: <Plus size={14} />, keywords: ['nueva', 'reserva', 'crear'], action: () => navigate('/reservas?new=1') },
     { kind: 'action', id: 'new-payment', label: 'Registrar pago', hint: 'Tecla P', icon: <CurrencyCircleDollar size={14} />, keywords: ['pago', 'cobrar', 'pagar'], action: () => quickPay.open() },
-    { kind: 'action', id: 'goto-timeline', label: 'Ver timeline de ocupacion', hint: '', icon: <CalendarBlank size={14} />, keywords: ['timeline', 'ocupacion', 'gantt'], action: () => navigate('/bookings/timeline') },
-    { kind: 'action', id: 'goto-cleaning', label: 'Vista de limpieza', hint: '', icon: <ClipboardText size={14} />, keywords: ['limpieza', 'housekeeping'], action: () => navigate('/cleaning') },
-    { kind: 'action', id: 'goto-cash-closure', label: 'Cierre de caja', hint: '', icon: <CurrencyCircleDollar size={14} />, keywords: ['cierre', 'caja', 'turno'], action: () => navigate('/payments/cash-closure') },
-    { kind: 'action', id: 'goto-payments', label: 'Lista de pagos', hint: '', icon: <CurrencyCircleDollar size={14} />, keywords: ['pagos'], action: () => navigate('/payments') },
-    { kind: 'action', id: 'goto-customers', label: 'Huespedes', hint: '', icon: <UserCircle size={14} />, keywords: ['huespedes', 'clientes'], action: () => navigate('/customers') },
-    { kind: 'action', id: 'goto-rooms', label: 'Habitaciones', hint: '', icon: <Bed size={14} />, keywords: ['habitaciones', 'rooms'], action: () => navigate('/rooms') },
+    { kind: 'action', id: 'goto-timeline', label: 'Ver timeline de ocupacion', hint: '', icon: <CalendarBlank size={14} />, keywords: ['timeline', 'ocupacion', 'gantt'], action: () => navigate('/reservas/timeline') },
+    { kind: 'action', id: 'goto-cleaning', label: 'Vista de limpieza', hint: '', icon: <ClipboardText size={14} />, keywords: ['limpieza', 'housekeeping'], action: () => navigate('/limpieza') },
+    { kind: 'action', id: 'goto-cash-closure', label: 'Cierre de caja', hint: '', icon: <CurrencyCircleDollar size={14} />, keywords: ['cierre', 'caja', 'turno'], action: () => navigate('/pagos/cierre-caja') },
+    { kind: 'action', id: 'goto-payments', label: 'Lista de pagos', hint: '', icon: <CurrencyCircleDollar size={14} />, keywords: ['pagos'], action: () => navigate('/pagos') },
+    { kind: 'action', id: 'goto-customers', label: 'Huespedes', hint: '', icon: <UserCircle size={14} />, keywords: ['huespedes', 'clientes'], action: () => navigate('/huespedes') },
+    { kind: 'action', id: 'goto-rooms', label: 'Habitaciones', hint: '', icon: <Bed size={14} />, keywords: ['habitaciones', 'rooms'], action: () => navigate('/habitaciones') },
   ];
 
   // Buscar (debounced)
@@ -76,13 +76,13 @@ export function CommandPalette({ open, onClose }: Props) {
         ]);
         const hits: SearchHit[] = [];
         for (const r of (rooms.data ?? []) as Array<{ id: number; numero: string; status: string }>) {
-          hits.push({ kind: 'room', id: r.id, label: `Cabana ${r.numero}`, hint: r.status, url: '/rooms' });
+          hits.push({ kind: 'room', id: r.id, label: `Cabana ${r.numero}`, hint: r.status, url: '/habitaciones' });
         }
         for (const b of (bookings.data ?? []) as Array<{ id: number; codigo: string; customer: { nombre: string }; room: { numero: string }; status: string }>) {
-          hits.push({ kind: 'booking', id: b.id, label: b.codigo, hint: `${b.customer.nombre} · Hab ${b.room.numero} · ${b.status}`, url: `/bookings/${b.id}` });
+          hits.push({ kind: 'booking', id: b.id, label: b.codigo, hint: `${b.customer.nombre} · Hab ${b.room.numero} · ${b.status}`, url: `/reservas/${b.id}` });
         }
         for (const c of (customers.data ?? []) as Array<{ id: number; nombres: string; apellidos: string; doc_numero: string; telefono: string | null }>) {
-          hits.push({ kind: 'customer', id: c.id, label: `${c.nombres} ${c.apellidos}`, hint: `${c.doc_numero}${c.telefono ? ' · ' + c.telefono : ''}`, url: `/customers/${c.id}` });
+          hits.push({ kind: 'customer', id: c.id, label: `${c.nombres} ${c.apellidos}`, hint: `${c.doc_numero}${c.telefono ? ' · ' + c.telefono : ''}`, url: `/huespedes/${c.id}` });
         }
         if (!cancel) setHits(hits);
       } catch {

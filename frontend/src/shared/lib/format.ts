@@ -1,6 +1,6 @@
 // Formatters comunes para UI.
 
-export function formatCurrency(amount: number, currency = 'USD', locale = 'es-VE'): string {
+export function formatCurrency(amount: number, currency = 'EUR', locale = 'es-VE'): string {
   return new Intl.NumberFormat(locale, {
     style: 'currency',
     currency,

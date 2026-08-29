@@ -31,7 +31,6 @@ import { createPayment, getCurrentRate, type CreatePaymentInput, type PaymentMet
 import {
   METHOD_LABELS,
   methodCurrency,
-  methodStartsAsPending,
 } from '../lib/labels';
 
 export interface QuickPaymentInitial {
@@ -83,7 +82,7 @@ function emptyForm(initial?: QuickPaymentInitial): FormState {
     target: initial?.preselected ?? (initial?.booking_id ? null : initial?.customer_id ? null : null),
     methodFields: { method_details: {} },
     monto: initial?.monto ? String(initial.monto) : '',
-    moneda: initial?.moneda ?? 'USD',
+    moneda: initial?.moneda ?? 'EUR',
     pagado_at: toLocalDatetimeInput(new Date()),
     notas: '',
     receipt_url: null,
@@ -189,17 +188,13 @@ export function PaymentQuickDialog({ open, onOpenChange, initial, onSaved }: Pro
       notas: form.notas || null,
       receipt_url: form.receipt_url,
       receipt_mime: form.receipt_mime,
+      force_status: 'confirmed',
     };
 
     setSubmitting(true);
     try {
       await createPayment(payload);
-      const pending = methodStartsAsPending(form.method);
-      toast.success(
-        pending
-          ? 'Pago registrado en estado "por confirmar"'
-          : 'Pago confirmado y contabilizado',
-      );
+      toast.success('Pago confirmado y contabilizado');
       onSaved?.();
       if (andOther) {
         // Mantener target y metodo, limpiar monto/notas/details/captura
@@ -309,9 +304,9 @@ export function PaymentQuickDialog({ open, onOpenChange, initial, onSaved }: Pro
                 <div>
                   <Label htmlFor="qd-moneda">Moneda</Label>
                   <SelectNative id="qd-moneda" value={form.moneda} onChange={(e) => setField('moneda', e.target.value)}>
+                    <option value="EUR">EUR</option>
                     <option value="USD">USD</option>
                     <option value="VES">VES (Bs)</option>
-                    <option value="EUR">EUR</option>
                   </SelectNative>
                 </div>
               </div>
@@ -359,13 +354,6 @@ export function PaymentQuickDialog({ open, onOpenChange, initial, onSaved }: Pro
                 />
               </div>
 
-              {methodStartsAsPending(form.method) && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50/50 dark:border-amber-900 dark:bg-amber-950/20 p-3">
-                  <p className="text-xs text-amber-700 dark:text-amber-300">
-                    Este pago se registrara como <strong>por confirmar</strong>. Recepcion o contabilidad debera conciliarlo despues.
-                  </p>
-                </div>
-              )}
             </>
           )}
 

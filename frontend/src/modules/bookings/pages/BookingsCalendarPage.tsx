@@ -70,7 +70,7 @@ export default function BookingsCalendarPage() {
             <button type="button" onClick={() => setCursor(addMonths(cursor, -1))} className="h-9 w-9 border border-border bg-card rounded-lg hover:bg-muted flex items-center justify-center"><CaretLeft size={14} weight="bold" /></button>
             <button type="button" onClick={() => setCursor(new Date())} className="h-9 px-3 text-xs font-semibold border border-border bg-card rounded-lg hover:bg-muted">Hoy</button>
             <button type="button" onClick={() => setCursor(addMonths(cursor, 1))} className="h-9 w-9 border border-border bg-card rounded-lg hover:bg-muted flex items-center justify-center"><CaretRight size={14} weight="bold" /></button>
-            <Link to="/bookings" className="h-9 px-3 text-xs font-semibold border border-border bg-card rounded-lg hover:bg-muted flex items-center gap-1.5"><ListBullets size={12} weight="bold" /> Lista</Link>
+            <Link to="/reservas" className="h-9 px-3 text-xs font-semibold border border-border bg-card rounded-lg hover:bg-muted flex items-center gap-1.5"><ListBullets size={12} weight="bold" /> Lista</Link>
           </>
         }
       />
@@ -94,7 +94,7 @@ export default function BookingsCalendarPage() {
                   </div>
                   <div className="mt-1 space-y-0.5">
                     {dayBookings.slice(0, 3).map((b) => (
-                      <Link key={b.id} to={`/bookings/${b.id}`} className="block text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary truncate hover:bg-primary/20">
+                      <Link key={b.id} to={`/reservas/${b.id}`} className="block text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary truncate hover:bg-primary/20">
                         {b.room.numero}: {b.customer.nombre.split(' ')[0]}
                       </Link>
                     ))}

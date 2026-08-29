@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { CurrencyDollar, DeviceMobile, FloppyDisk } from '@phosphor-icons/react';
+import { CurrencyDollar, DeviceMobile, FloppyDisk, DownloadSimple } from '@phosphor-icons/react';
 import { PageHeader } from '../../../shared/components/ui/PageHeader';
 import { Button } from '../../../shared/components/ui/button';
 import { Input } from '../../../shared/components/ui/input';
@@ -11,7 +11,7 @@ import { SelectNative } from '../../../shared/components/ui/select-native';
 import { ApiError } from '../../../shared/api/client';
 import { supabase } from '../../../shared/lib/supabase';
 import {
-  getCurrentRate, upsertRate, listRates,
+  getCurrentRate, upsertRate, listRates, syncBcvRate,
   type ExchangeRate,
 } from '../api/payments.api';
 import { VENEZUELAN_BANKS } from '../lib/labels';
@@ -60,8 +60,10 @@ export default function PaymentsSettingsPage() {
 function ExchangeRateCard() {
   const [current, setCurrent] = useState<ExchangeRate | null>(null);
   const [history, setHistory] = useState<ExchangeRate[]>([]);
-  const [input, setInput] = useState('');
+  const [usdInput, setUsdInput] = useState('');
+  const [eurInput, setEurInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -76,64 +78,84 @@ function ExchangeRateCard() {
   useEffect(() => { void load(); }, [load]);
 
   async function handleSave() {
-    const v = Number(input);
-    if (!Number.isFinite(v) || v <= 0) {
-      toast.error('Tasa invalida');
-      return;
-    }
+    const usd = Number(usdInput);
+    const eur = eurInput ? Number(eurInput) : null;
+    if (!Number.isFinite(usd) || usd <= 0) { toast.error('Tasa USD invalida'); return; }
+    if (eur !== null && (!Number.isFinite(eur) || eur <= 0)) { toast.error('Tasa EUR invalida'); return; }
     setSubmitting(true);
     try {
-      await upsertRate({ bs_per_usd: v, source: 'manual' });
+      await upsertRate({ bs_per_usd: usd, bs_per_eur: eur, source: 'manual' });
       toast.success('Tasa actualizada');
-      setInput('');
+      setUsdInput(''); setEurInput('');
       await load();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Error');
     } finally { setSubmitting(false); }
   }
 
+  async function handleSyncBcv() {
+    setSyncing(true);
+    try {
+      const r = await syncBcvRate();
+      toast.success(`Sync BCV OK · USD ${r.bs_per_usd.toFixed(2)} · EUR ${(r.bs_per_eur ?? 0).toFixed(2)}`);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Error sync BCV');
+    } finally { setSyncing(false); }
+  }
+
   return (
     <div className="bg-card border border-border rounded-2xl p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <CurrencyDollar size={18} weight="duotone" className="text-primary" />
-        <h2 className="font-bold">Tasa de cambio Bs/USD (BCV)</h2>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <CurrencyDollar size={18} weight="duotone" className="text-primary" />
+          <h2 className="font-bold">Tasa de cambio BCV (Bs/USD y Bs/EUR)</h2>
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={() => void handleSyncBcv()} disabled={syncing}>
+          <DownloadSimple size={14} weight="bold" className="mr-1.5" />
+          {syncing ? 'Sincronizando...' : 'Sincronizar BCV automatico'}
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <div className="rounded-xl bg-muted/40 border border-border p-3">
+          <p className="text-[10px] uppercase text-muted-foreground font-bold">USD hoy</p>
+          <p className="font-mono text-2xl font-extrabold tabular-nums">{current ? current.bs_per_usd.toFixed(4) : '—'}</p>
+        </div>
+        <div className="rounded-xl bg-muted/40 border border-border p-3">
+          <p className="text-[10px] uppercase text-muted-foreground font-bold">EUR hoy</p>
+          <p className="font-mono text-2xl font-extrabold tabular-nums">{current?.bs_per_eur ? current.bs_per_eur.toFixed(4) : '—'}</p>
+        </div>
+        <div className="rounded-xl bg-muted/40 border border-border p-3 col-span-2">
+          <p className="text-[10px] uppercase text-muted-foreground font-bold">Fuente</p>
+          <p className="text-sm font-semibold">{current ? `${current.source} · ${formatDate(current.fecha)}` : 'Sin tasa registrada'}</p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
         <div>
-          <Label>Tasa actual</Label>
-          <div className="h-10 flex items-center font-mono text-2xl font-extrabold tabular-nums">
-            {current ? current.bs_per_usd.toFixed(4) : <span className="text-sm text-muted-foreground">Sin tasa registrada</span>}
-          </div>
-          {current && <p className="text-[11px] text-muted-foreground">Fuente: {current.source} · {formatDate(current.fecha)}</p>}
+          <Label htmlFor="rate-usd">Nueva tasa USD (Bs/USD)</Label>
+          <Input id="rate-usd" type="number" step="0.0001" min="0" inputMode="decimal" placeholder="737.88" value={usdInput} onChange={(e) => setUsdInput(e.target.value)} />
         </div>
         <div>
-          <Label htmlFor="rate-input">Nueva tasa (Bs por USD)</Label>
-          <Input
-            id="rate-input"
-            type="number"
-            step="0.0001"
-            min="0"
-            inputMode="decimal"
-            placeholder="36.5000"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-          />
+          <Label htmlFor="rate-eur">Nueva tasa EUR (Bs/EUR)</Label>
+          <Input id="rate-eur" type="number" step="0.0001" min="0" inputMode="decimal" placeholder="841.84" value={eurInput} onChange={(e) => setEurInput(e.target.value)} />
         </div>
-        <Button type="button" onClick={() => void handleSave()} disabled={submitting || !input}>
+        <Button type="button" onClick={() => void handleSave()} disabled={submitting || !usdInput}>
           <FloppyDisk size={14} weight="bold" className="mr-1.5" />
-          {submitting ? 'Guardando...' : 'Guardar tasa de hoy'}
+          {submitting ? 'Guardando...' : 'Guardar tasa manual'}
         </Button>
       </div>
 
       {history.length > 0 && (
         <div className="mt-5">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Historial</h3>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Historial (ultimos 12 dias)</h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2">
             {history.slice(0, 12).map((r) => (
               <div key={r.fecha} className="rounded-lg border border-border bg-background p-2 text-center">
                 <p className="text-[10px] text-muted-foreground">{formatDate(r.fecha)}</p>
-                <p className="font-bold tabular-nums text-sm">{r.bs_per_usd.toFixed(4)}</p>
+                <p className="font-bold tabular-nums text-sm">USD {r.bs_per_usd.toFixed(2)}</p>
+                {r.bs_per_eur && <p className="text-[11px] tabular-nums">EUR {r.bs_per_eur.toFixed(2)}</p>}
               </div>
             ))}
           </div>

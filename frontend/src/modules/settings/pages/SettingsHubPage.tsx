@@ -22,7 +22,7 @@ interface SettingCard {
 
 const CARDS: SettingCard[] = [
   {
-    to: '/payments/settings',
+    to: '/pagos/configuracion',
     title: 'Pagos y tasa BCV',
     description: 'Tasa Bs/USD del dia + datos del hotel para Pago Movil.',
     icon: CurrencyCircleDollar,
@@ -30,7 +30,7 @@ const CARDS: SettingCard[] = [
     color: 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border-emerald-200/50 dark:border-emerald-900/50',
   },
   {
-    to: '/rooms/types',
+    to: '/habitaciones/tipos',
     title: 'Tipos y tarifas',
     description: 'Define tipos de habitacion con tarifas por dia/semana/mes.',
     icon: Bed,
@@ -38,7 +38,7 @@ const CARDS: SettingCard[] = [
     color: 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 border-blue-200/50 dark:border-blue-900/50',
   },
   {
-    to: '/settings/users',
+    to: '/configuracion/usuarios',
     title: 'Usuarios',
     description: 'Crea, desactiva y resetea contrasenas. Solo superadmin.',
     icon: Users,
@@ -46,7 +46,7 @@ const CARDS: SettingCard[] = [
     color: 'bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border-amber-200/50 dark:border-amber-900/50',
   },
   {
-    to: '/settings/audit',
+    to: '/configuracion/auditoria',
     title: 'Audit log',
     description: 'Bitacora de acciones sensibles del sistema.',
     icon: Notebook,

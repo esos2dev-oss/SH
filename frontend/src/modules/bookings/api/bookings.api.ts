@@ -1,4 +1,5 @@
 import { supabase, invokeFunction } from '../../../shared/lib/supabase';
+import { cached } from '../../../shared/lib/cached';
 import type { PaginatedResponse } from '../../../shared/api/client';
 
 export type BookingPeriod = 'dia' | 'semana' | 'mes';
@@ -13,6 +14,7 @@ export interface Booking {
   payment_status: 'pendiente' | 'parcial' | 'pagado' | 'reembolsado';
   status: BookingStatus; origen: string; notas: string | null;
   vehicle_plate: string | null;
+  desayunos_extra: number;
   cancelled_at: string | null; cancelled_reason: string | null;
   customer: { id: number; nombre: string; email: string | null };
   room: { id: number; numero: string; planta: string | null; type: string };
@@ -22,6 +24,7 @@ export interface Booking {
 export interface AvailabilityRoom {
   id: number; numero: string; planta: string | null; room_type: string;
   tarifa_dia: number; tarifa_semana: number; tarifa_mes: number;
+  capacidad: number;
 }
 
 export async function listBookings(params?: {
@@ -33,12 +36,17 @@ export async function listBookings(params?: {
   const from = (page - 1) * limit;
   const to = from + limit - 1;
 
-  let q = supabase.from('bookings_with_relations').select('*', { count: 'exact' }).order('fecha_entrada', { ascending: false }).range(from, to);
+  // Orden: por creacion DESC (las reservas mas nuevas arriba, "orden de reservacion")
+  let q = supabase.from('bookings_with_relations').select('*', { count: 'exact' }).order('created_at', { ascending: false }).range(from, to);
   if (params?.status)       q = q.eq('status', params.status);
   if (params?.period)       q = q.eq('period', params.period);
   if (params?.dateFrom)     q = q.gte('fecha_entrada', params.dateFrom);
   if (params?.dateTo)       q = q.lte('fecha_salida', params.dateTo);
-  if (params?.search)       q = q.ilike('codigo', `%${params.search}%`);
+  // Buscar en codigo, nombre huesped y numero de habitacion (via campos JSONB de la view)
+  if (params?.search) {
+    const s = params.search.trim();
+    q = q.or(`codigo.ilike.%${s}%,customer->>nombre.ilike.%${s}%,room->>numero.ilike.%${s}%`);
+  }
 
   const { data, error, count } = await q;
   if (error) throw new Error(error.message);
@@ -66,32 +74,44 @@ export async function calendarBookings(dateFrom: string, dateTo: string): Promis
   return (data ?? []) as Booking[];
 }
 
+type RoomWithType = { id: number; numero: string; planta: string | null; room_type: { id: number; nombre: string; tarifa_dia: number; tarifa_semana: number; tarifa_mes: number; capacidad: number } | null };
+
+// Cache de la lista de rooms activas — cambia muy raramente.
+async function fetchActiveRooms(): Promise<RoomWithType[]> {
+  return cached('rooms:active:with_type', 5 * 60_000, async () => {
+    const { data, error } = await supabase.from('rooms')
+      .select('id, numero, planta, room_type:room_types(id, nombre, tarifa_dia, tarifa_semana, tarifa_mes, capacidad)')
+      .eq('active', true);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as unknown as RoomWithType[];
+  });
+}
+
 export async function availability(params: { dateFrom: string; dateTo: string; room_type_id?: number; huespedes?: number }): Promise<AvailabilityRoom[]> {
-  const { data: occupied, error: e1 } = await supabase
-    .from('bookings')
-    .select('room_id')
-    .lt('fecha_entrada', params.dateTo)
-    .gt('fecha_salida', params.dateFrom)
-    .in('status', ['pendiente','confirmada','en_curso']);
-  if (e1) throw new Error(e1.message);
-  const occupiedIds = (occupied ?? []).map((r) => r.room_id);
+  // Paralelizar: bookings ocupados y lista de rooms (esta ultima cacheada).
+  // Antes: 2 queries secuenciales (~1-3s). Ahora: max(query1, query2) ~= 500ms
+  // y a partir de la 2da carga la de rooms es instantanea desde cache.
+  const [occupiedRes, rooms] = await Promise.all([
+    supabase.from('bookings')
+      .select('room_id')
+      .lt('fecha_entrada', params.dateTo)
+      .gt('fecha_salida', params.dateFrom)
+      .in('status', ['pendiente','confirmada','en_curso']),
+    fetchActiveRooms(),
+  ]);
+  if (occupiedRes.error) throw new Error(occupiedRes.error.message);
+  const occupiedIds = new Set((occupiedRes.data ?? []).map((r) => r.room_id));
 
-  let q = supabase.from('rooms').select('id, numero, planta, room_type:room_types(id, nombre, tarifa_dia, tarifa_semana, tarifa_mes, capacidad)').eq('active', true);
-  if (occupiedIds.length) q = q.not('id', 'in', `(${occupiedIds.join(',')})`);
-  if (params.room_type_id) q = q.eq('room_type_id', params.room_type_id);
-
-  const { data, error } = await q;
-  if (error) throw new Error(error.message);
-  type Row = { id: number; numero: string; planta: string | null; room_type: { nombre: string; tarifa_dia: number; tarifa_semana: number; tarifa_mes: number; capacidad: number } | null };
-  const rows = (data ?? []) as unknown as Row[];
-  return rows
-    .filter((r) => !params.huespedes || (r.room_type?.capacidad ?? 0) >= params.huespedes)
+  return rooms
+    .filter((r) => !occupiedIds.has(r.id))
+    .filter((r) => !params.room_type_id || r.room_type?.id === params.room_type_id)
     .map((r) => ({
       id: r.id, numero: r.numero, planta: r.planta,
       room_type: r.room_type?.nombre ?? '',
       tarifa_dia: Number(r.room_type?.tarifa_dia ?? 0),
       tarifa_semana: Number(r.room_type?.tarifa_semana ?? 0),
       tarifa_mes: Number(r.room_type?.tarifa_mes ?? 0),
+      capacidad: Number(r.room_type?.capacidad ?? 0),
     }));
 }
 
@@ -99,6 +119,7 @@ export async function createBooking(data: {
   customer_id: number; room_id: number; period: BookingPeriod;
   fecha_entrada: string; fecha_salida: string; huespedes?: number;
   descuento_pct?: number; descuento_monto?: number;
+  desayunos_extra?: number;
   vehicle_plate?: string | null;
   notas?: string | null;
 }): Promise<Booking> {
@@ -116,6 +137,12 @@ export async function updateBooking(id: number, data: { huespedes?: number; nota
 }
 
 export async function confirmBooking(id: number): Promise<Booking> {
+  // Politica: solo se confirma si hay >= 50% pagado (importe_pagado real, no promesas).
+  const current = await getBooking(id);
+  const minRequired = current.importe_total * 0.5;
+  if (current.importe_pagado + 0.01 < minRequired) {
+    throw new Error(`No se puede confirmar sin al menos 50% pagado. Pagado: ${current.importe_pagado.toFixed(2)} · Minimo: ${minRequired.toFixed(2)}. Registra un pago antes.`);
+  }
   const { error } = await supabase.from('bookings').update({ status: 'confirmada' }).eq('id', id);
   if (error) throw new Error(error.message);
   return getBooking(id);

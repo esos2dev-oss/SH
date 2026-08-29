@@ -29,6 +29,7 @@ export default function PaymentsPage() {
   const [items, setItems] = useState<PaymentPublic[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<number | null>(null);
   const [filters, setFilters] = useState<{
     status: PaymentStatus | '';
     method: PaymentMethod | '';
@@ -50,16 +51,22 @@ export default function PaymentsPage() {
     } finally { setLoading(false); }
   }, [filters]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const t = setTimeout(() => { void load(); }, 400);
+    return () => clearTimeout(t);
+  }, [load]);
   useOnPaymentSaved(useCallback(() => { void load(); }, [load]));
 
   async function handleConfirm(p: PaymentPublic) {
+    setBusyId(p.id);
     try {
       await confirmPayment(p.id);
       toast.success('Pago confirmado');
       await load();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(err instanceof Error ? err.message : 'No se pudo confirmar el pago');
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -73,12 +80,15 @@ export default function PaymentsPage() {
       maxLength: 500,
     });
     if (!reason) return;
+    setBusyId(p.id);
     try {
       await rejectPayment(p.id, reason);
       toast.success('Pago rechazado');
       await load();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Error');
+      toast.error(err instanceof Error ? err.message : 'No se pudo rechazar el pago');
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -117,7 +127,6 @@ export default function PaymentsPage() {
             onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value as PaymentStatus | '' }))}
           >
             <option value="">Todos</option>
-            <option value="pending_confirmation">Por confirmar</option>
             <option value="confirmed">Confirmados</option>
             <option value="rejected">Rechazados</option>
           </SelectNative>
@@ -172,9 +181,9 @@ export default function PaymentsPage() {
                   <td className="px-4 py-2 whitespace-nowrap text-xs text-muted-foreground">{formatDateTime(p.pagado_at)}</td>
                   <td className="px-4 py-2">
                     {p.booking ? (
-                      <Link to={`/bookings/${p.booking.id}`} className="text-primary hover:underline font-semibold">{p.booking.codigo}</Link>
+                      <Link to={`/reservas/${p.booking.id}`} className="text-primary hover:underline font-semibold">{p.booking.codigo}</Link>
                     ) : p.customer ? (
-                      <Link to={`/customers/${p.customer.id}`} className="text-primary hover:underline">{p.customer.nombre}</Link>
+                      <Link to={`/huespedes/${p.customer.id}`} className="text-primary hover:underline">{p.customer.nombre}</Link>
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}
@@ -200,8 +209,10 @@ export default function PaymentsPage() {
                   <td className="px-4 py-2 text-right">
                     {p.status === 'pending_confirmation' ? (
                       <div className="inline-flex gap-1">
-                        <button type="button" onClick={() => void handleConfirm(p)} className="p-1.5 rounded hover:bg-emerald-50 text-emerald-600 dark:hover:bg-emerald-950/30" title="Confirmar"><Check size={14} weight="bold" /></button>
-                        <button type="button" onClick={() => void handleReject(p)} className="p-1.5 rounded hover:bg-red-50 text-red-600 dark:hover:bg-red-950/30" title="Rechazar"><X size={14} weight="bold" /></button>
+                        <button type="button" onClick={() => void handleConfirm(p)} disabled={busyId === p.id} className="p-1.5 rounded hover:bg-emerald-50 text-emerald-600 dark:hover:bg-emerald-950/30 disabled:opacity-40 disabled:cursor-wait" title="Confirmar">
+                          {busyId === p.id ? <span className="inline-block w-3.5 h-3.5 border-2 border-emerald-600/30 border-t-emerald-600 rounded-full animate-spin" /> : <Check size={14} weight="bold" />}
+                        </button>
+                        <button type="button" onClick={() => void handleReject(p)} disabled={busyId === p.id} className="p-1.5 rounded hover:bg-red-50 text-red-600 dark:hover:bg-red-950/30 disabled:opacity-40 disabled:cursor-wait" title="Rechazar"><X size={14} weight="bold" /></button>
                       </div>
                     ) : (
                       <span className="text-[10px] text-muted-foreground inline-flex items-center gap-1"><Funnel size={10} /> {p.confirmed_at ? 'Confirmado' : p.rejected_at ? 'Rechazado' : ''}</span>

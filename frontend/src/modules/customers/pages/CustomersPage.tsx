@@ -40,7 +40,10 @@ export default function CustomersPage() {
       toast.error(err instanceof ApiError ? err.message : 'Error');
     } finally { setLoading(false); }
   }
-  useEffect(() => { void load(); }, [segment]);
+  useEffect(() => {
+    const t = setTimeout(() => { void load(); }, 400);
+    return () => clearTimeout(t);
+  }, [segment, search]);
 
   return (
     <div className="space-y-6">
@@ -80,7 +83,11 @@ export default function CustomersPage() {
       {/* Tabla */}
       <div className="bg-card rounded-3xl border border-border shadow-sm overflow-hidden">
         {loading ? (
-          <div className="p-12 text-center text-sm text-muted-foreground">Cargando...</div>
+          <div className="p-4 space-y-2">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="h-12 rounded-lg bg-muted animate-pulse" />
+            ))}
+          </div>
         ) : items.length === 0 ? (
           <EmptyState icon={UserCircle} title="Sin huespedes" description="Aun no se han registrado huespedes." />
         ) : (
@@ -100,7 +107,7 @@ export default function CustomersPage() {
                 {items.map((c) => (
                   <tr key={c.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                     <td className="px-5 py-3">
-                      <Link to={`/customers/${c.id}`} className="font-semibold hover:text-primary">{c.nombres} {c.apellidos}</Link>
+                      <Link to={`/huespedes/${c.id}`} className="font-semibold hover:text-primary">{c.nombres} {c.apellidos}</Link>
                       {c.nacionalidad && <p className="text-[11px] text-muted-foreground">{c.nacionalidad}</p>}
                     </td>
                     <td className="px-5 py-3 text-muted-foreground">

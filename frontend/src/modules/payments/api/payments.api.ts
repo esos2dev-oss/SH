@@ -4,6 +4,7 @@
 // se promuevan a Postgres functions/edge functions.
 
 import { supabase } from '../../../shared/lib/supabase';
+import { cached, invalidate } from '../../../shared/lib/cached';
 import type { PaginatedResponse } from '../../../shared/api/client';
 
 export type PaymentMethod =
@@ -107,6 +108,7 @@ export interface CustomerStatement {
 export interface ExchangeRate {
   fecha: string;
   bs_per_usd: number;
+  bs_per_eur: number | null;
   source: 'manual' | 'bcv';
 }
 
@@ -196,7 +198,11 @@ export async function lookupQuick(q: string): Promise<QuickLookupItem[]> {
 export async function createPayment(data: CreatePaymentInput): Promise<PaymentPublic> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('No autenticado');
-  const status: PaymentStatus = data.force_status ?? (data.method === 'pago_movil' || data.method === 'zelle' || data.method === 'transferencia' ? 'pending_confirmation' : 'confirmed');
+  // Politica del hotel: todos los pagos se registran confirmados. Se elimino
+  // el flujo "por confirmar" — si un pago se ingresa es porque ya se verifico.
+  const status: PaymentStatus = 'confirmed';
+  const now = new Date().toISOString();
+  const isConfirmed = true;
   const { data: row, error } = await supabase.from('booking_payments').insert({
     booking_id: data.booking_id ?? null,
     customer_id: data.customer_id ?? null,
@@ -206,12 +212,14 @@ export async function createPayment(data: CreatePaymentInput): Promise<PaymentPu
     method: data.method,
     method_details: data.method_details ?? {},
     referencia: data.referencia ?? null,
-    pagado_at: data.pagado_at ?? new Date().toISOString(),
+    pagado_at: data.pagado_at ?? now,
     receipt_url: data.receipt_url ?? null,
     receipt_mime: data.receipt_mime ?? null,
     notas: data.notas ?? null,
     status,
     registered_by: user.id,
+    confirmed_at: isConfirmed ? now : null,
+    confirmed_by: isConfirmed ? user.id : null,
   }).select('id').single();
   if (error) throw new Error(error.message);
   return getPayment((row as { id: number }).id);
@@ -313,8 +321,11 @@ export async function getCustomerStatement(customerId: number): Promise<Customer
 }
 
 export async function getCurrentRate(): Promise<ExchangeRate | null> {
-  const { data } = await supabase.from('exchange_rates').select('*').order('fecha', { ascending: false }).limit(1).maybeSingle();
-  return data as ExchangeRate | null;
+  // Cache 10 min. La tasa BCV se fija una vez al dia.
+  return cached('exchange_rate:current', 10 * 60_000, async () => {
+    const { data } = await supabase.from('exchange_rates').select('*').order('fecha', { ascending: false }).limit(1).maybeSingle();
+    return data as ExchangeRate | null;
+  });
 }
 
 export async function listRates(): Promise<ExchangeRate[]> {
@@ -323,18 +334,29 @@ export async function listRates(): Promise<ExchangeRate[]> {
   return (data ?? []) as ExchangeRate[];
 }
 
-export async function upsertRate(data: { fecha?: string; bs_per_usd: number; source?: 'manual' | 'bcv' }): Promise<ExchangeRate> {
+export async function upsertRate(data: { fecha?: string; bs_per_usd: number; bs_per_eur?: number | null; source?: 'manual' | 'bcv' }): Promise<ExchangeRate> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('No autenticado');
-  const payload = {
+  const payload: Record<string, unknown> = {
     fecha: data.fecha ?? new Date().toISOString().slice(0, 10),
     bs_per_usd: data.bs_per_usd,
     source: data.source ?? 'manual',
     set_by: user.id,
   };
+  if (data.bs_per_eur !== undefined) payload.bs_per_eur = data.bs_per_eur;
   const { data: row, error } = await supabase.from('exchange_rates').upsert(payload).select('*').single();
   if (error) throw new Error(error.message);
+  invalidate('exchange_rate:current');
   return row as ExchangeRate;
+}
+
+// Sincroniza tasa BCV (USD + EUR) llamando a edge function que consulta ve.dolarapi.com.
+export async function syncBcvRate(): Promise<ExchangeRate> {
+  const { data, error } = await supabase.functions.invoke<{ success: boolean; data?: ExchangeRate; error?: string }>('sync-bcv-rate', { body: {} });
+  if (error) throw new Error(error.message);
+  if (!data?.success || !data.data) throw new Error(data?.error ?? 'Error sync BCV');
+  invalidate('exchange_rate:current');
+  return data.data;
 }
 
 export async function uploadReceipt(file: File): Promise<{ url: string; mime: string; size: number }> {

@@ -1,4 +1,5 @@
 import { supabase } from '../../../shared/lib/supabase';
+import { cached, invalidate } from '../../../shared/lib/cached';
 
 export type RoomStatus = 'disponible' | 'ocupada' | 'limpieza' | 'mantenimiento' | 'fuera_servicio';
 
@@ -145,6 +146,15 @@ export async function deleteRoom(id: number): Promise<void> {
 
 // ---------- Room types ----------
 export async function listRoomTypes(params?: { active?: boolean; search?: string }): Promise<RoomType[]> {
+  // Cache: 5 minutos. Room types cambian raramente.
+  // Solo cacheamos la variante "active=true, sin search" (la que se usa en 90% de casos).
+  if (params?.active === true && !params.search) {
+    return cached('room_types:active', 5 * 60_000, async () => {
+      const { data, error } = await supabase.from('room_types').select('*').eq('active', true).order('nombre');
+      if (error) throw new Error(error.message);
+      return (data ?? []) as RoomType[];
+    });
+  }
   let q = supabase.from('room_types').select('*').order('nombre');
   if (params?.active !== undefined) q = q.eq('active', params.active);
   if (params?.search) q = q.ilike('nombre', `%${params.search}%`);
@@ -171,11 +181,12 @@ export async function createRoomType(data: Partial<RoomType> & { nombre: string;
     tarifa_dia_bs: data.tarifa_dia_bs ?? null,
     tarifa_semana_bs: data.tarifa_semana_bs ?? null,
     tarifa_mes_bs: data.tarifa_mes_bs ?? null,
-    moneda: data.moneda ?? 'USD',
+    moneda: data.moneda ?? 'EUR',
     amenities: data.amenities ?? [],
     active: data.active ?? true,
   }).select('*').single();
   if (error) throw new Error(error.message);
+  invalidate('room_types:active');
   return row as RoomType;
 }
 
@@ -186,10 +197,12 @@ export async function updateRoomType(id: number, data: Partial<RoomType>): Promi
   }
   const { data: row, error } = await supabase.from('room_types').update(patch).eq('id', id).select('*').single();
   if (error) throw new Error(error.message);
+  invalidate('room_types:active');
   return row as RoomType;
 }
 
 export async function deleteRoomType(id: number): Promise<void> {
   const { error } = await supabase.from('room_types').delete().eq('id', id);
   if (error) throw new Error(error.message);
+  invalidate('room_types:active');
 }

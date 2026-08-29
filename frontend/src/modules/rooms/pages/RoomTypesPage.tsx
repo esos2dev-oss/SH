@@ -119,7 +119,7 @@ function RoomTypeFormDialog({ rt, onClose, onSaved }: { rt: RoomType | null; onC
   const [tarifaDiaBs, setTarifaDiaBs] = useState<number | ''>(rt?.tarifa_dia_bs ?? '');
   const [tarifaSemanaBs, setTarifaSemanaBs] = useState<number | ''>(rt?.tarifa_semana_bs ?? '');
   const [tarifaMesBs, setTarifaMesBs] = useState<number | ''>(rt?.tarifa_mes_bs ?? '');
-  const [moneda, setMoneda] = useState(rt?.moneda ?? 'USD');
+  const [moneda, setMoneda] = useState(rt?.moneda ?? 'EUR');
   const [amenities, setAmenities] = useState((rt?.amenities ?? []).join(', '));
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);

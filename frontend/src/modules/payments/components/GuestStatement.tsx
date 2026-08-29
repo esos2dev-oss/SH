@@ -72,7 +72,7 @@ export function GuestStatement({ customerId }: Props) {
         <div key={b.booking.id} className="bg-card rounded-3xl border border-border shadow-sm p-5">
           <div className="flex items-center justify-between gap-2 mb-3">
             <div>
-              <Link to={`/bookings/${b.booking.id}`} className="font-semibold text-sm hover:text-primary inline-flex items-center gap-1">
+              <Link to={`/reservas/${b.booking.id}`} className="font-semibold text-sm hover:text-primary inline-flex items-center gap-1">
                 {b.booking.codigo} <ArrowSquareOut size={12} />
               </Link>
               <p className="text-[11px] text-muted-foreground">{formatDate(b.booking.fecha_entrada)} → {formatDate(b.booking.fecha_salida)} · {b.booking.status}</p>

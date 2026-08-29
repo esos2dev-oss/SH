@@ -297,7 +297,7 @@ function TimelineRow({ cell, bookings, navigate, dragInfo, onDragStart, onDragEn
                     room_id: String(cell.room.id),
                     date: formatDateOnly(slot.date),
                   });
-                  navigate(`/bookings?${params.toString()}`);
+                  navigate(`/reservas?${params.toString()}`);
                 }}
                 className="w-full h-full hover:bg-primary/10 rounded text-[10px] text-muted-foreground/0 hover:text-primary"
                 title={`Crear reserva en hab. ${cell.room.numero} para el ${formatDateOnly(slot.date)}`}
@@ -346,7 +346,7 @@ function TimelineRow({ cell, bookings, navigate, dragInfo, onDragStart, onDragEn
                 onDragStart(booking.id, cell.room.id);
               }}
               onDragEnd={onDragEnd}
-              onClick={() => navigate(`/bookings/${booking.id}`)}
+              onClick={() => navigate(`/reservas/${booking.id}`)}
               className={cn(
                 'w-full h-full rounded text-[10px] font-bold px-1.5 py-1 text-left overflow-hidden transition-all cursor-pointer',
                 color,

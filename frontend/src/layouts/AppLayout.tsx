@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
-import { List, X, Bed } from '@phosphor-icons/react';
+import { List, X } from '@phosphor-icons/react';
 import { useAuth } from '../contexts/AuthContext';
 import { Sidebar } from '../shared/components/layout/Sidebar';
 import { QuickPaymentProvider } from '../modules/payments/hooks/QuickPaymentProvider';
@@ -32,10 +32,8 @@ export function AppLayout() {
           <List size={22} weight="bold" />
         </button>
         <div className="ml-3 flex items-center gap-2 flex-1">
-          <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center text-primary-foreground">
-            <Bed size={14} weight="bold" />
-          </div>
-          <span className="font-extrabold text-sm tracking-tight">Sistema Hotelero</span>
+          <img src="/sh/logo-pinar.png" alt="El Pinar" className="w-8 h-8 rounded-lg object-contain bg-white p-0.5" />
+          <span className="font-extrabold text-sm tracking-tight">El Pinar</span>
         </div>
         <NotificationBell />
       </div>

@@ -134,7 +134,7 @@ export default function BookingDetailPage() {
 
   return (
     <div className="space-y-6 max-w-5xl">
-      <Link to="/bookings" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft size={14} /> Volver a reservas</Link>
+      <Link to="/reservas" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft size={14} /> Volver a reservas</Link>
 
       <PageHeader
         title={booking.codigo}
@@ -149,10 +149,10 @@ export default function BookingDetailPage() {
               <button type="button" onClick={() => void transition('cancel')} className="h-9 px-3 text-xs font-semibold border border-red-200 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400 flex items-center gap-1.5"><XCircle size={12} weight="bold" /> Cancelar</button>
             )}
             {booking.status === 'confirmada' && (
-              <button type="button" onClick={() => navigate(`/check-ins/new/${booking.id}`)} className="h-9 px-3 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 shadow-sm shadow-emerald-600/20 flex items-center gap-1.5"><ClipboardText size={12} weight="bold" /> Hacer check-in</button>
+              <button type="button" onClick={() => navigate(`/check-in/nuevo/${booking.id}`)} className="h-9 px-3 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 shadow-sm shadow-emerald-600/20 flex items-center gap-1.5"><ClipboardText size={12} weight="bold" /> Hacer check-in</button>
             )}
             {booking.status === 'en_curso' && (
-              <button type="button" onClick={() => navigate(`/check-ins/${booking.id}`)} className="h-9 px-3 text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm shadow-blue-600/20 flex items-center gap-1.5">Check-out</button>
+              <button type="button" onClick={() => navigate(`/check-in/${booking.id}`)} className="h-9 px-3 text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm shadow-blue-600/20 flex items-center gap-1.5">Check-out</button>
             )}
           </>
         }
@@ -185,7 +185,7 @@ export default function BookingDetailPage() {
             <Field label="Creada" value={formatDateTime(booking.created_at)} />
             <div className="sm:col-span-2">
               <Field label="Huesped" value={
-                <Link to={`/customers/${booking.customer.id}`} className="text-primary hover:underline">{booking.customer.nombre}</Link>
+                <Link to={`/huespedes/${booking.customer.id}`} className="text-primary hover:underline">{booking.customer.nombre}</Link>
               } />
             </div>
             {booking.notas && <div className="sm:col-span-2"><Field label="Notas" value={booking.notas} /></div>}

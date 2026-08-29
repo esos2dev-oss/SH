@@ -88,7 +88,7 @@ export default function CheckOutPage() {
       } else {
         toast.success('Check-out completado · Habitacion en limpieza');
       }
-      navigate(`/bookings/${booking.id}`);
+      navigate(`/reservas/${booking.id}`);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Error');
     } finally { setSubmitting(false); }
@@ -98,14 +98,14 @@ export default function CheckOutPage() {
   if (!booking) return <div className="text-center py-12">Reserva no encontrada</div>;
   if (!checkIn) return (
     <div className="space-y-4 max-w-2xl">
-      <Link to={`/bookings/${booking.id}`} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft size={14} /> Volver</Link>
+      <Link to={`/reservas/${booking.id}`} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft size={14} /> Volver</Link>
       <p>No hay check-in registrado para esta reserva.</p>
     </div>
   );
 
   return (
     <div className="space-y-6 max-w-2xl">
-      <Link to={`/bookings/${booking.id}`} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft size={14} /> Volver a la reserva</Link>
+      <Link to={`/reservas/${booking.id}`} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft size={14} /> Volver a la reserva</Link>
 
       <PageHeader title="Check-in / check-out" subtitle={`Reserva ${booking.codigo} · Hab. ${booking.room.numero}`} />
 

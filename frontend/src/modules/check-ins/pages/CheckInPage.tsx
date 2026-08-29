@@ -94,7 +94,7 @@ export default function CheckInPage() {
         huespedes_acompaniantes: cleanAcomp.length > 0 ? cleanAcomp : undefined,
       });
       toast.success('Check-in registrado. Habitacion ocupada.');
-      navigate(`/bookings/${booking.id}`);
+      navigate(`/reservas/${booking.id}`);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Error');
     } finally { setSubmitting(false); }
@@ -105,7 +105,7 @@ export default function CheckInPage() {
 
   return (
     <div className="space-y-6 max-w-2xl">
-      <Link to={`/bookings/${booking.id}`} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft size={14} /> Volver a la reserva</Link>
+      <Link to={`/reservas/${booking.id}`} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft size={14} /> Volver a la reserva</Link>
 
       <PageHeader title="Check-in" subtitle={`Reserva ${booking.codigo}`} />
 
@@ -233,7 +233,7 @@ export default function CheckInPage() {
             <ClipboardText size={16} weight="bold" />
             {submitting ? 'Registrando...' : 'Confirmar check-in'}
           </button>
-          <Link to={`/bookings/${booking.id}`} className="h-11 px-6 border border-border bg-card rounded-xl font-semibold text-sm hover:bg-muted flex items-center">Cancelar</Link>
+          <Link to={`/reservas/${booking.id}`} className="h-11 px-6 border border-border bg-card rounded-xl font-semibold text-sm hover:bg-muted flex items-center">Cancelar</Link>
         </div>
       </form>
     </div>

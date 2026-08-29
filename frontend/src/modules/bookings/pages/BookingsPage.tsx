@@ -42,7 +42,11 @@ export default function BookingsPage() {
       toast.error(err instanceof ApiError ? err.message : 'Error');
     } finally { setLoading(false); }
   }
-  useEffect(() => { void load(); }, [status]);
+  // Live-search con debounce 400ms + recarga al cambiar status
+  useEffect(() => {
+    const t = setTimeout(() => { void load(); }, 400);
+    return () => clearTimeout(t);
+  }, [status, search]);
 
   return (
     <div className="space-y-6">
@@ -51,7 +55,7 @@ export default function BookingsPage() {
         subtitle={`${total} reservas registradas`}
         actions={
           <>
-            <Link to="/bookings/calendar" className="h-9 px-3 text-xs font-semibold border border-border bg-card rounded-lg hover:bg-muted flex items-center gap-1.5"><CalendarBlank size={12} weight="bold" /> Calendario</Link>
+            <Link to="/reservas/calendario" className="h-9 px-3 text-xs font-semibold border border-border bg-card rounded-lg hover:bg-muted flex items-center gap-1.5"><CalendarBlank size={12} weight="bold" /> Calendario</Link>
             <button type="button" onClick={() => void load()} className="h-9 px-3 text-xs font-semibold border border-border bg-card rounded-lg hover:bg-muted flex items-center gap-1.5"><ArrowClockwise size={12} weight="bold" /> Refrescar</button>
             <button type="button" onClick={() => setShowForm(true)} className="h-9 px-3 text-xs font-semibold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 shadow-sm shadow-primary/20 flex items-center gap-1.5"><Plus size={12} weight="bold" /> Nueva reserva</button>
           </>
@@ -91,7 +95,7 @@ export default function BookingsPage() {
               </thead>
               <tbody>
                 {items.map((b) => (
-                  <tr key={b.id} className="border-b last:border-0 hover:bg-muted/30 cursor-pointer transition-colors" onClick={() => navigate(`/bookings/${b.id}`)}>
+                  <tr key={b.id} className="border-b last:border-0 hover:bg-muted/30 cursor-pointer transition-colors" onClick={() => navigate(`/reservas/${b.id}`)}>
                     <td className="px-5 py-3 font-bold">{b.codigo}</td>
                     <td className="px-5 py-3">{b.customer.nombre}</td>
                     <td className="px-5 py-3 text-muted-foreground">Hab. {b.room.numero} · {b.room.type}</td>
@@ -107,7 +111,7 @@ export default function BookingsPage() {
         )}
       </div>
 
-      {showForm && <BookingFormDialog onClose={() => setShowForm(false)} onSaved={(id) => { setShowForm(false); navigate(`/bookings/${id}`); }} />}
+      {showForm && <BookingFormDialog onClose={() => setShowForm(false)} onSaved={(id) => { setShowForm(false); navigate(`/reservas/${id}`); }} />}
     </div>
   );
 }

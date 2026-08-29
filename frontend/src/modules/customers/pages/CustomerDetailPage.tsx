@@ -36,7 +36,7 @@ export default function CustomerDetailPage() {
 
   return (
     <div className="space-y-6 max-w-5xl">
-      <Link to="/customers" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft size={14} /> Volver a huespedes</Link>
+      <Link to="/huespedes" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft size={14} /> Volver a huespedes</Link>
 
       <PageHeader
         title={`${customer.nombres} ${customer.apellidos}`}
@@ -112,7 +112,7 @@ export default function CustomerDetailPage() {
           ) : (
             <div className="space-y-2">
               {timeline.bookings.map((b) => (
-                <Link key={b.id} to={`/bookings/${b.id}`} className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-muted/30 transition-colors">
+                <Link key={b.id} to={`/reservas/${b.id}`} className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-muted/30 transition-colors">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <p className="font-semibold text-sm">{b.codigo}</p>

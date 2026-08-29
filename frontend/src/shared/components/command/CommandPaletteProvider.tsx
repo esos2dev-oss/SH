@@ -45,7 +45,7 @@ export function CommandPaletteProvider({ children }: Props) {
       // "?" — abrir palette (helper)
       if (e.key === '?') { e.preventDefault(); setIsOpen(true); return; }
       // "N" — nueva reserva
-      if (e.key === 'n' || e.key === 'N') { e.preventDefault(); navigate('/bookings?new=1'); return; }
+      if (e.key === 'n' || e.key === 'N') { e.preventDefault(); navigate('/reservas?new=1'); return; }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

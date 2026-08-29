@@ -8,7 +8,7 @@ import {
   type Customer, type DocKind, type ReferralSource,
 } from '../../customers/api/customers.api';
 import {
-  availability, createBooking,
+  availability, createBooking, confirmBooking,
   type BookingPeriod, type AvailabilityRoom,
 } from '../api/bookings.api';
 import { createPayment, type PaymentMethod } from '../../payments/api/payments.api';
@@ -48,7 +48,6 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
   const [newCustTelefono, setNewCustTelefono] = useState('');
   const [newCustEmail, setNewCustEmail] = useState('');
   const [newCustDireccion, setNewCustDireccion] = useState('');
-  const [newCustPlaca, setNewCustPlaca] = useState('');
   const [newCustReferral, setNewCustReferral] = useState<ReferralSource | ''>('');
   const [newCustReferralOther, setNewCustReferralOther] = useState('');
 
@@ -62,16 +61,26 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
   const [roomLoading, setRoomLoading] = useState(false);
   const [roomSearch, setRoomSearch] = useState('');
 
+  // Reset del "confirmar excede cap" cuando cambia la habitacion o huespedes
+  useEffect(() => { setConfirmarExcedeCap(false); }, [roomId, huespedes]);
+
   // === Estado: Importe / descuento ===
   const [descuentoPct, setDescuentoPct] = useState(0);
   const [descuentoMonto, setDescuentoMonto] = useState(0);
+  // Delta de desayunos respecto al numero de huespedes.
+  // 0 = exactamente huespedes desayunos (incluidos). Negativo = menos. Positivo = mas.
+  const [desayunosExtra, setDesayunosExtra] = useState(0);
+  // Confirmacion explicita cuando la habitacion elegida tiene menos capacidad que huespedes.
+  const [confirmarExcedeCap, setConfirmarExcedeCap] = useState(false);
 
-  // === Estado: Pago inicial (opcional) ===
-  const [includePayment, setIncludePayment] = useState(false);
+  // === Estado: Pago inicial (OBLIGATORIO — min 50% o 100%) ===
+  // Politica: no se puede crear una reserva sin adelanto minimo del 50%.
+  const [payPreset, setPayPreset] = useState<'50' | '100'>('50');
   const [payMonto, setPayMonto] = useState('');
   const [payMethod, setPayMethod] = useState<PaymentMethod>('efectivo');
   const [payReferencia, setPayReferencia] = useState('');
   const [payNotas, setPayNotas] = useState('');
+  // (Politica: todos los pagos se registran como confirmados.)
 
   const [notas, setNotas] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -126,13 +135,25 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
     if (period === 'mes')    { unidades = Math.max(1, Math.ceil(dias / 30)); tarifa = room.tarifa_mes;    }
     const subtotal = tarifa * unidades;
     const descPctValor = (subtotal * Math.max(0, Math.min(100, descuentoPct))) / 100;
-    const total = Math.max(0, subtotal - descPctValor - Math.max(0, descuentoMonto));
+    // Ajuste por desayunos: $7 por desayuno extra por dia (o descuento si negativo)
+    const BREAKFAST_PRICE = 7;
+    const desayunosMonto = desayunosExtra * BREAKFAST_PRICE * dias;
+    const total = Math.max(0, subtotal - descPctValor - Math.max(0, descuentoMonto) + desayunosMonto);
     const descuentoExcedido = descuentoMonto > subtotal;
-    return { unidades, tarifa, subtotal, descPctValor, total, descuentoExcedido };
-  }, [available, roomId, fechaEntrada, fechaSalida, period, descuentoPct, descuentoMonto]);
+    return { unidades, tarifa, subtotal, descPctValor, desayunosMonto, dias, total, descuentoExcedido };
+  }, [available, roomId, fechaEntrada, fechaSalida, period, descuentoPct, descuentoMonto, desayunosExtra]);
+
+  // Sincroniza monto con preset (50% o 100%) cada vez que cambia el total.
+  useEffect(() => {
+    if (!calc) return;
+    const pct = payPreset === '100' ? 1 : 0.5;
+    setPayMonto((calc.total * pct).toFixed(2));
+  }, [calc?.total, payPreset]);
 
   const payMontoNum = Number(payMonto || 0);
-  const payExcedeTotal = includePayment && calc !== null && payMontoNum > calc.total;
+  const minPago = calc ? calc.total * 0.5 : 0;
+  const payExcedeTotal = calc !== null && payMontoNum > calc.total + 0.01;
+  const payInsuficiente = calc !== null && payMontoNum < minPago - 0.01;
 
   const canSubmit = useMemo(() => {
     if (customerMode === 'existing' && !selectedCustomer) return false;
@@ -141,17 +162,47 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
       if (newCustReferral === 'otro' && !newCustReferralOther.trim()) return false;
     }
     if (!fechaEntrada || !fechaSalida || !roomId) return false;
-    if (includePayment) {
-      if (!payMonto || Number(payMonto) <= 0) return false;
-      if (calc && Number(payMonto) > calc.total) return false;
-    }
+    const selRoom = available.find((r) => r.id === roomId);
+    if (selRoom && huespedes > selRoom.capacidad && !confirmarExcedeCap) return false;
+    // Pago obligatorio: minimo 50%
+    if (!calc || calc.total <= 0) return false;
+    if (payMontoNum < minPago - 0.01) return false;
+    if (payMontoNum > calc.total + 0.01) return false;
     return true;
-  }, [customerMode, selectedCustomer, newCustNombres, newCustApellidos, newCustDocNumero, newCustReferral, newCustReferralOther, fechaEntrada, fechaSalida, roomId, includePayment, payMonto, calc]);
+  }, [customerMode, selectedCustomer, newCustNombres, newCustApellidos, newCustDocNumero, newCustReferral, newCustReferralOther, fechaEntrada, fechaSalida, roomId, available, huespedes, confirmarExcedeCap, payMontoNum, calc, minPago]);
+
+  function describeMissing(): string | null {
+    const missing: string[] = [];
+    if (customerMode === 'existing') {
+      if (!selectedCustomer) missing.push('Huesped');
+    } else {
+      if (!newCustNombres.trim())  missing.push('Nombres');
+      if (!newCustApellidos.trim()) missing.push('Apellidos');
+      if (!newCustDocNumero.trim()) missing.push('Documento');
+      if (newCustReferral === 'otro' && !newCustReferralOther.trim()) missing.push('Detalle "otro"');
+    }
+    if (!fechaEntrada) missing.push('Fecha de entrada');
+    if (!fechaSalida)  missing.push('Fecha de salida');
+    if (!roomId)       missing.push('Habitacion');
+    // Si la habitacion elegida tiene menos capacidad que los huespedes, exigimos check.
+    const selRoom = available.find((r) => r.id === roomId);
+    if (selRoom && huespedes > selRoom.capacidad && !confirmarExcedeCap) {
+      return `Marca "Confirmo" para reservar ${huespedes} huespedes en la habitacion ${selRoom.numero} (capacidad ${selRoom.capacidad}).`;
+    }
+    if (!calc || calc.total <= 0) missing.push('Seleccionar habitacion');
+    else if (payInsuficiente) return `Pago insuficiente. Minimo 50% (${formatCurrency(minPago)}). Elige "50% adelanto" o "100% completo".`;
+    else if (payExcedeTotal) return `El monto (${formatCurrency(payMontoNum)}) supera el total de la reserva (${formatCurrency(calc.total)}).`;
+    if (missing.length === 0) return null;
+    if (missing.length === 1) return `Falta: ${missing[0]}`;
+    if (missing.length === 2) return `Faltan: ${missing[0]} y ${missing[1]}`;
+    return `Faltan: ${missing.slice(0, -1).join(', ')} y ${missing[missing.length - 1]}`;
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!canSubmit) {
-      toast.error('Completa los campos requeridos');
+    const missing = describeMissing();
+    if (missing) {
+      toast.error(missing);
       return;
     }
     setSubmitting(true);
@@ -168,7 +219,6 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
           email: newCustEmail.trim() || null,
           telefono: newCustTelefono.trim() || null,
           direccion: newCustDireccion.trim() || null,
-          vehicle_plate: newCustPlaca.trim().toUpperCase() || null,
           referral_source: newCustReferral || null,
           referral_other: newCustReferral === 'otro' ? newCustReferralOther.trim() : null,
         });
@@ -190,37 +240,43 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
         huespedes,
         descuento_pct: descuentoPct || undefined,
         descuento_monto: descuentoMonto || undefined,
+        desayunos_extra: desayunosExtra,
         notas: notas.trim() || null,
       });
 
-      // 3. Crear pago inicial si aplica.
-      // Si el pago falla, la reserva ya esta creada — informamos UN solo mensaje
-      // claro y llevamos al detalle para que el usuario reintente el cobro.
+      // 3. Crear pago inicial (OBLIGATORIO).
       let pagoExito = true;
       let pagoErrorMsg = '';
-      if (includePayment && Number(payMonto) > 0) {
-        try {
-          await createPayment({
-            booking_id: booking.id,
-            customer_id: customerId,
-            monto: Number(payMonto),
-            moneda: booking.moneda,
-            method: payMethod,
-            referencia: payReferencia.trim() || null,
-            notas: payNotas.trim() || null,
-            pagado_at: new Date().toISOString(),
-          });
-        } catch (payErr) {
-          pagoExito = false;
-          pagoErrorMsg = payErr instanceof Error ? payErr.message : 'Error';
-        }
+      let pagoConfirmado = false;
+      try {
+        const created = await createPayment({
+          booking_id: booking.id,
+          customer_id: customerId,
+          monto: Number(payMonto),
+          moneda: booking.moneda,
+          method: payMethod,
+          referencia: payReferencia.trim() || null,
+          notas: payNotas.trim() || null,
+          pagado_at: new Date().toISOString(),
+          force_status: 'confirmed',
+        });
+        pagoConfirmado = created.status === 'confirmed';
+      } catch (payErr) {
+        pagoExito = false;
+        pagoErrorMsg = payErr instanceof Error ? payErr.message : 'Error';
       }
 
-      if (!includePayment || pagoExito) {
-        toast.success(`Reserva ${booking.codigo} creada${includePayment ? ` · pago de ${formatCurrency(Number(payMonto))} registrado` : ''}`);
+      // 4. Si el pago quedo confirmado y cubre al menos 50%, avanzar reserva a "confirmada"
+      if (pagoExito && pagoConfirmado && Number(payMonto) >= calc!.total * 0.5 - 0.01) {
+        try { await confirmBooking(booking.id); } catch { /* no critico */ }
+      }
+
+      if (pagoExito) {
+        const label = payPreset === '100' ? '100%' : '50%';
+        const stateMsg = pagoConfirmado ? '· pago confirmado · reserva confirmada' : '· pago pendiente de conciliar';
+        toast.success(`Reserva ${booking.codigo} creada (${label}) ${stateMsg}`);
       } else {
-        // Reserva sí, pago no — un único mensaje claro
-        toast.warning(`Reserva ${booking.codigo} creada, pero el pago fallo (${pagoErrorMsg}). Reintenta desde el detalle.`);
+        toast.warning(`Reserva ${booking.codigo} creada pero el pago fallo (${pagoErrorMsg}). Reintenta desde el detalle.`);
       }
       onSaved(booking.id);
     } catch (err) {
@@ -324,17 +380,14 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
                   <Field label="Email" type="email" value={newCustEmail} onChange={setNewCustEmail} />
                 </div>
                 <Field label="Direccion" value={newCustDireccion} onChange={setNewCustDireccion} />
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Placa de vehiculo" value={newCustPlaca} onChange={setNewCustPlaca} placeholder="AB123CD" />
-                  <div>
-                    <Label>Como nos conocio</Label>
-                    <select value={newCustReferral} onChange={(e) => setNewCustReferral(e.target.value as ReferralSource | '')} className="w-full h-11 px-4 rounded-xl border border-border bg-muted/50 text-sm">
-                      <option value="">— Sin especificar —</option>
-                      {Object.entries(REFERRAL_SOURCE_LABELS).map(([v, label]) => (
+                <div>
+                  <Label>Como nos conocio</Label>
+                  <select value={newCustReferral} onChange={(e) => setNewCustReferral(e.target.value as ReferralSource | '')} className="w-full h-11 px-4 rounded-xl border border-border bg-muted/50 text-sm">
+                    <option value="">— Sin especificar —</option>
+                    {Object.entries(REFERRAL_SOURCE_LABELS).map(([v, label]) => (
                         <option key={v} value={v}>{label}</option>
                       ))}
-                    </select>
-                  </div>
+                  </select>
                 </div>
                 {newCustReferral === 'otro' && (
                   <Field label="Especifica" required value={newCustReferralOther} onChange={setNewCustReferralOther} />
@@ -365,7 +418,22 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
             </div>
             <div className="mt-3">
               <Label>Huespedes</Label>
-              <input type="number" min={1} value={huespedes} onChange={(e) => setHuespedes(Math.max(1, Number(e.target.value)))} className="w-full h-11 px-4 rounded-xl border border-border bg-muted/50 text-sm" />
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => setHuespedes((h) => Math.max(1, h - 1))} className="h-11 w-11 rounded-xl border border-border bg-card font-bold text-lg hover:bg-muted active:scale-95 transition-transform">−</button>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={huespedes}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/[^0-9]/g, '');
+                    if (v === '') { setHuespedes(1); return; }
+                    setHuespedes(Math.max(1, Number(v)));
+                  }}
+                  className="flex-1 h-11 px-4 rounded-xl border border-border bg-muted/50 text-center font-bold text-lg tabular-nums"
+                />
+                <button type="button" onClick={() => setHuespedes((h) => h + 1)} className="h-11 w-11 rounded-xl border border-border bg-card font-bold text-lg hover:bg-muted active:scale-95 transition-transform">+</button>
+              </div>
             </div>
             {huespedes > 1 && (
               <p className="text-[11px] text-muted-foreground mt-2 pl-1">
@@ -387,7 +455,9 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
                   )}
                 </div>
                 {roomLoading ? (
-                  <p className="text-xs text-muted-foreground bg-muted/30 rounded-xl p-3">Buscando disponibilidad...</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-56 overflow-y-auto p-0.5">
+                    {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-24 rounded-xl bg-muted animate-pulse" />)}
+                  </div>
                 ) : available.length === 0 ? (
                   <div className="flex items-start gap-2 text-xs bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200 rounded-xl p-3 border border-amber-200 dark:border-amber-900">
                     <Warning size={16} weight="duotone" className="shrink-0 mt-0.5" />
@@ -397,20 +467,52 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
                     </div>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-0.5">
+                  <>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-56 overflow-y-auto p-0.5">
                     {available
                       .filter((r) => !roomSearch || r.numero.toLowerCase().includes(roomSearch.toLowerCase()))
                       .map((r) => {
                         const tarifa = period === 'dia' ? r.tarifa_dia : period === 'semana' ? r.tarifa_semana : r.tarifa_mes;
+                        const excedeCap = huespedes > r.capacidad;
+                        const selected = roomId === r.id;
                         return (
-                          <button key={r.id} type="button" onClick={() => setRoomId(r.id)} className={`text-left p-3 rounded-xl border transition-all ${roomId === r.id ? 'border-primary bg-primary/5 ring-2 ring-primary/30' : 'border-border bg-card hover:bg-muted/30'}`}>
+                          <button key={r.id} type="button" onClick={() => setRoomId(r.id)}
+                            className={`text-left p-3 rounded-xl border transition-all ${
+                              selected ? 'border-primary bg-primary/5 ring-2 ring-primary/30'
+                              : excedeCap ? 'border-amber-300 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20 hover:bg-amber-50 dark:hover:bg-amber-950/40'
+                              : 'border-border bg-card hover:bg-muted/30'
+                            }`}>
                             <p className="font-bold">Hab. {r.numero}</p>
                             <p className="text-[11px] text-muted-foreground">{r.room_type}</p>
+                            <p className="text-[10px] text-muted-foreground">Capacidad: {r.capacidad} pax</p>
                             <p className="text-xs font-semibold mt-1">{formatCurrency(tarifa)} / {period}</p>
+                            {excedeCap && (
+                              <p className="text-[10px] font-bold text-amber-700 dark:text-amber-300 mt-1">
+                                ⚠ Excede capacidad ({huespedes} &gt; {r.capacidad})
+                              </p>
+                            )}
                           </button>
                         );
                       })}
                   </div>
+                  {(() => {
+                    const selRoom = available.find((r) => r.id === roomId);
+                    if (!selRoom || huespedes <= selRoom.capacidad) return null;
+                    return (
+                      <label className="flex items-start gap-2 mt-3 p-3 rounded-xl border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={confirmarExcedeCap}
+                          onChange={(e) => setConfirmarExcedeCap(e.target.checked)}
+                          className="mt-0.5 h-4 w-4 rounded"
+                        />
+                        <span className="text-xs text-amber-900 dark:text-amber-100">
+                          <strong>Confirmo</strong> que caben <strong>{huespedes} huespedes</strong> en la habitacion <strong>{selRoom.numero}</strong> ({selRoom.room_type}, capacidad {selRoom.capacidad}). Puede requerir camas extra o incomodidad.
+                        </span>
+                      </label>
+                    );
+                  })()}
+                  </>
                 )}
               </div>
             )}
@@ -429,10 +531,41 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
                   <input type="number" min={0} step="0.01" value={descuentoMonto || ''} onChange={(e) => setDescuentoMonto(Number(e.target.value) || 0)} className="w-full h-11 px-4 rounded-xl border border-border bg-muted/50 text-sm" placeholder="0" />
                 </div>
               </div>
+              {/* Desayunos */}
+              <div className="rounded-xl border border-border bg-amber-50/60 dark:bg-amber-950/20 p-3 mb-3">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">Desayunos</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Incluidos: {huespedes} (1 por huesped). +/- $7/dia por desayuno adicional o menos.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setDesayunosExtra((v) => Math.max(-huespedes, v - 1))} className="h-9 w-9 rounded-lg border border-border bg-card font-bold text-lg hover:bg-muted disabled:opacity-40" disabled={huespedes + desayunosExtra <= 0}>−</button>
+                    <div className="min-w-[3rem] text-center">
+                      <p className="text-xl font-bold tabular-nums leading-none">{huespedes + desayunosExtra}</p>
+                      <p className="text-[9px] text-muted-foreground uppercase">total</p>
+                    </div>
+                    <button type="button" onClick={() => setDesayunosExtra((v) => v + 1)} className="h-9 w-9 rounded-lg border border-border bg-card font-bold text-lg hover:bg-muted">+</button>
+                  </div>
+                </div>
+                {desayunosExtra !== 0 && (
+                  <p className={`mt-2 text-[11px] font-semibold ${desayunosExtra > 0 ? 'text-amber-700 dark:text-amber-300' : 'text-emerald-700 dark:text-emerald-400'}`}>
+                    {desayunosExtra > 0 ? '+' : ''}{desayunosExtra} desayuno{Math.abs(desayunosExtra) !== 1 ? 's' : ''} × $7 × {calc.dias} dia{calc.dias > 1 ? 's' : ''} = {desayunosExtra > 0 ? '+' : ''}{formatCurrency(calc.desayunosMonto)}
+                  </p>
+                )}
+              </div>
+
               <div className="rounded-xl border border-border bg-muted/30 p-4 space-y-1.5 text-sm">
                 <div className="flex justify-between"><span className="text-muted-foreground">{formatCurrency(calc.tarifa)} × {calc.unidades} {period}{calc.unidades > 1 ? 's' : ''}</span><span className="tabular-nums">{formatCurrency(calc.subtotal)}</span></div>
                 {calc.descPctValor > 0 && <div className="flex justify-between text-emerald-700 dark:text-emerald-400"><span>Descuento {descuentoPct}%</span><span className="tabular-nums">−{formatCurrency(calc.descPctValor)}</span></div>}
                 {descuentoMonto > 0 && <div className="flex justify-between text-emerald-700 dark:text-emerald-400"><span>Descuento fijo</span><span className="tabular-nums">−{formatCurrency(descuentoMonto)}</span></div>}
+                {calc.desayunosMonto !== 0 && (
+                  <div className={`flex justify-between ${calc.desayunosMonto > 0 ? 'text-amber-700 dark:text-amber-300' : 'text-emerald-700 dark:text-emerald-400'}`}>
+                    <span>Desayunos ({desayunosExtra > 0 ? '+' : ''}{desayunosExtra})</span>
+                    <span className="tabular-nums">{calc.desayunosMonto > 0 ? '+' : '−'}{formatCurrency(Math.abs(calc.desayunosMonto))}</span>
+                  </div>
+                )}
                 <div className="flex justify-between border-t border-border pt-1.5 mt-1.5 font-bold"><span>Total</span><span className="tabular-nums text-base">{formatCurrency(calc.total)}</span></div>
               </div>
               {calc.descuentoExcedido && (
@@ -443,38 +576,75 @@ export function BookingFormDialog({ onClose, onSaved }: Props) {
             </Section>
           )}
 
-          {/* === 4. PAGO INICIAL === */}
-          <Section title="4 · Pago inicial (opcional)" subtitle="Registra un pago al crear la reserva o dejala como cuenta por cobrar">
-            <label className="flex items-center gap-2 text-sm cursor-pointer mb-3">
-              <input type="checkbox" checked={includePayment} onChange={(e) => setIncludePayment(e.target.checked)} />
-              <CurrencyCircleDollar size={16} weight="duotone" className="text-primary" />
-              Registrar pago ahora
-            </label>
-            {includePayment && (
-              <div className="space-y-3 pl-6">
+          {/* === 4. PAGO INICIAL (OBLIGATORIO) === */}
+          <Section title="4 · Pago inicial (obligatorio)" subtitle="Politica del hotel: minimo 50% al reservar o 100% completo. No se aceptan reservas sin adelanto.">
+            {!calc ? (
+              <p className="text-xs text-muted-foreground bg-muted/30 rounded-xl p-3">Primero selecciona fechas y habitacion.</p>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-xs text-primary font-semibold">
+                  <CurrencyCircleDollar size={16} weight="duotone" />
+                  Elige el adelanto
+                </div>
+                {/* Botones rapidos + slider libre 50-100% */}
+                <div className="grid grid-cols-3 gap-2">
+                  {[50, 75, 100].map((pct) => {
+                    const monto = calc.total * (pct / 100);
+                    const isActive = Math.abs(payMontoNum - monto) < 0.01;
+                    return (
+                      <button key={pct} type="button" onClick={() => { setPayPreset(pct === 50 ? '50' : '100'); setPayMonto(monto.toFixed(2)); }}
+                        className={`p-2 rounded-xl border-2 transition-all ${isActive ? 'border-primary bg-primary/5' : 'border-border bg-card hover:bg-muted/30'}`}>
+                        <p className="font-bold text-xs">{pct}%</p>
+                        <p className="text-sm font-extrabold tabular-nums text-primary">{formatCurrency(monto)}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div>
+                  <Label>Ajusta el monto (minimo {formatCurrency(minPago)} · maximo {formatCurrency(calc.total)})</Label>
+                  <input
+                    type="range" min={minPago} max={calc.total} step="0.01" value={payMontoNum || minPago}
+                    onChange={(e) => setPayMonto(Number(e.target.value).toFixed(2))}
+                    className="w-full accent-primary h-2"
+                  />
+                  <div className="flex items-center justify-between mt-1 text-[11px] text-muted-foreground">
+                    <span>50%</span>
+                    <span className="font-bold text-primary text-sm tabular-nums">{formatCurrency(payMontoNum || 0)} ({calc.total > 0 ? Math.round((payMontoNum / calc.total) * 100) : 0}%)</span>
+                    <span>100%</span>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label>Metodo</Label>
+                    <Label>Metodo <span className="text-red-500">*</span></Label>
                     <select value={payMethod} onChange={(e) => setPayMethod(e.target.value as PaymentMethod)} className="w-full h-11 px-4 rounded-xl border border-border bg-muted/50 text-sm">
                       {PAYMENT_METHOD_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
                     </select>
                   </div>
                   <div>
-                    <Label>Monto</Label>
-                    <input type="number" min={0} step="0.01" value={payMonto} onChange={(e) => setPayMonto(e.target.value)} placeholder={calc ? formatCurrency(calc.total) : '0.00'} className="w-full h-11 px-4 rounded-xl border border-border bg-muted/50 text-sm" />
+                    <Label>Monto (editable)</Label>
+                    <input type="number" min={minPago} max={calc.total} step="0.01" value={payMonto} onChange={(e) => setPayMonto(e.target.value)} className="w-full h-11 px-4 rounded-xl border border-border bg-muted/50 text-sm tabular-nums font-mono" />
                   </div>
                 </div>
-                {payExcedeTotal && (
-                  <p className="text-[11px] text-red-600 dark:text-red-400 flex items-center gap-1.5">
-                    <Warning size={12} weight="duotone" /> El monto del pago supera el total de la reserva ({calc && formatCurrency(calc.total)}).
+
+                {payInsuficiente && (
+                  <p className="text-[11px] text-red-600 dark:text-red-400 flex items-center gap-1.5 bg-red-50 dark:bg-red-950/30 rounded-lg p-2 border border-red-200 dark:border-red-800">
+                    <Warning size={12} weight="duotone" /> Pago insuficiente. Minimo 50% ({formatCurrency(minPago)}).
                   </p>
                 )}
-                <Field label="Referencia (numero, ultimos digitos, etc.)" value={payReferencia} onChange={setPayReferencia} />
+                {payExcedeTotal && (
+                  <p className="text-[11px] text-red-600 dark:text-red-400 flex items-center gap-1.5">
+                    <Warning size={12} weight="duotone" /> El monto supera el total ({formatCurrency(calc.total)}).
+                  </p>
+                )}
+
+                <Field label="Referencia (n° operacion, ultimos digitos, etc.)" value={payReferencia} onChange={setPayReferencia} />
                 <div>
                   <Label>Notas del pago</Label>
                   <textarea value={payNotas} onChange={(e) => setPayNotas(e.target.value)} rows={2} className="w-full px-4 py-2 rounded-xl border border-border bg-muted/50 text-sm" placeholder="Detalle del pago, banco, etc." />
                 </div>
-                <p className="text-[11px] text-muted-foreground">Adjunta el comprobante (foto/PDF) desde la reserva luego de crearla.</p>
+
+                <p className="text-[11px] text-muted-foreground">Adjunta el comprobante (foto/PDF) desde el detalle de la reserva luego de crearla.</p>
               </div>
             )}
           </Section>

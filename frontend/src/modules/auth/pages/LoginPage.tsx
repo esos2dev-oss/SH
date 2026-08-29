@@ -72,10 +72,13 @@ export default function LoginPage() {
 
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-12">
-            <div className="w-11 h-11 rounded-2xl bg-white/15 backdrop-blur flex items-center justify-center">
-              <Bed size={22} weight="duotone" />
+            <div className="w-14 h-14 rounded-2xl bg-white flex items-center justify-center shadow-lg overflow-hidden p-1">
+              <img src="/sh/logo-pinar.png" alt="El Pinar" className="w-full h-full object-contain" />
             </div>
-            <span className="text-lg font-extrabold tracking-tight">Sistema Hotelero</span>
+            <div>
+              <p className="text-lg font-extrabold tracking-tight leading-none">El Pinar</p>
+              <p className="text-[11px] text-white/70 mt-1">Sistema Hotelero</p>
+            </div>
           </div>
 
           <h1 className="text-4xl xl:text-5xl font-extrabold tracking-tight leading-[1.05]">
@@ -106,10 +109,8 @@ export default function LoginPage() {
 
         <div className="relative w-full max-w-sm">
           <div className="lg:hidden flex items-center justify-center gap-3 mb-8">
-            <div className="w-12 h-12 rounded-2xl bg-primary text-primary-foreground flex items-center justify-center shadow-lg shadow-primary/20">
-              <Bed size={22} weight="duotone" />
-            </div>
-            <span className="text-lg font-extrabold tracking-tight">Sistema Hotelero</span>
+            <img src="/sh/logo-pinar.png" alt="El Pinar" className="w-14 h-14 rounded-2xl bg-white shadow-lg object-contain p-1" />
+            <span className="text-lg font-extrabold tracking-tight">El Pinar</span>
           </div>
 
           <div className="space-y-2 mb-8">

@@ -21,6 +21,9 @@ import {
   Moon,
   ShieldCheck,
   Question,
+  Coffee,
+  Clock,
+  Lightning,
   type IconProps,
 } from '@phosphor-icons/react';
 import { useAuth, type Role } from '../../../contexts/AuthContext';
@@ -56,24 +59,28 @@ const NAV: NavEntry[] = [
     icon: Bed,
     roles: ['superadmin', 'admin', 'recepcion', 'limpieza'],
     children: [
-      { to: '/rooms', label: 'Panel', roles: ['superadmin', 'admin', 'recepcion'] },
-      { to: '/rooms/types', label: 'Tipos y tarifas', roles: ['superadmin', 'admin'] },
-      { to: '/cleaning', label: 'Limpieza', roles: ['superadmin', 'admin', 'limpieza'] },
+      { to: '/habitaciones', label: 'Panel', roles: ['superadmin', 'admin', 'recepcion'] },
+      { to: '/habitaciones/tipos', label: 'Tipos y tarifas', roles: ['superadmin', 'admin'] },
+      { to: '/limpieza', label: 'Limpieza', roles: ['superadmin', 'admin', 'limpieza'] },
+      { to: '/mantenimiento', label: 'Mantenimiento', roles: ['superadmin', 'admin', 'recepcion', 'limpieza', 'contabilidad'] },
     ],
   },
-  { label: 'Reservas', to: '/bookings', icon: CalendarBlank, roles: ['superadmin', 'admin', 'recepcion', 'contabilidad'] },
-  { label: 'Calendario', to: '/bookings/calendar', icon: ClipboardText, roles: ['superadmin', 'admin', 'recepcion'] },
-  { label: 'Timeline', to: '/bookings/timeline', icon: ClipboardText, roles: ['superadmin', 'admin', 'recepcion'] },
-  { label: 'Huespedes', to: '/customers', icon: UserCircle, roles: ['superadmin', 'admin', 'recepcion', 'contabilidad'] },
+  { label: 'Reservas', to: '/reservas', icon: CalendarBlank, roles: ['superadmin', 'admin', 'recepcion', 'contabilidad'] },
+  { label: 'Calendario', to: '/reservas/calendario', icon: ClipboardText, roles: ['superadmin', 'admin', 'recepcion'] },
+  { label: 'Timeline', to: '/reservas/timeline', icon: ClipboardText, roles: ['superadmin', 'admin', 'recepcion'] },
+  { label: 'Huespedes', to: '/huespedes', icon: UserCircle, roles: ['superadmin', 'admin', 'recepcion', 'contabilidad'] },
+  { label: 'Desayunos', to: '/desayunos', icon: Coffee, roles: ['superadmin', 'admin', 'recepcion', 'contabilidad', 'restaurante'] },
+  { label: 'Asistencia', to: '/asistencia', icon: Clock },
+  { label: 'Planta electrica', to: '/planta', icon: Lightning, roles: ['superadmin', 'admin', 'recepcion', 'limpieza', 'contabilidad'] },
   {
     label: 'Pagos',
     icon: CurrencyCircleDollar,
     roles: ['superadmin', 'admin', 'recepcion', 'contabilidad'],
     children: [
-      { to: '/payments', label: 'Lista de pagos' },
-      { to: '/payments/bank', label: 'Conciliacion bancaria', roles: ['superadmin', 'admin', 'contabilidad'] },
-      { to: '/payments/cash-closure', label: 'Cierre de caja' },
-      { to: '/payments/settings', label: 'Configuracion', roles: ['superadmin', 'admin'] },
+      { to: '/pagos', label: 'Lista de pagos' },
+      { to: '/pagos/conciliacion', label: 'Conciliacion bancaria', roles: ['superadmin', 'admin', 'contabilidad'] },
+      { to: '/pagos/cierre-caja', label: 'Cierre de caja' },
+      { to: '/pagos/configuracion', label: 'Configuracion', roles: ['superadmin', 'admin'] },
     ],
   },
   {
@@ -81,8 +88,8 @@ const NAV: NavEntry[] = [
     icon: Calculator,
     roles: ['superadmin', 'admin', 'contabilidad'],
     children: [
-      { to: '/ledger', label: 'Ingresos / Egresos', icon: Receipt },
-      { to: '/reports', label: 'Reportes', icon: ChartLineUp },
+      { to: '/finanzas', label: 'Ingresos / Egresos', icon: Receipt },
+      { to: '/reportes', label: 'Reportes', icon: ChartLineUp },
     ],
   },
 ];
@@ -160,7 +167,7 @@ function NavGroup({ group, role, onNavigate }: NavGroupProps) {
           {visible.map((child) => {
             // Si la url de este child es prefix de la url de otro hermano,
             // forzamos match exacto para evitar activacion doble.
-            // Ej: '/rooms' es prefix de '/rooms/types' -> end=true en '/rooms'.
+            // Ej: '/habitaciones' es prefix de '/habitaciones/tipos' -> end=true en '/habitaciones'.
             const isPrefixOfSibling = visible.some(
               (s) => s.to !== child.to && s.to.startsWith(child.to + '/'),
             );
@@ -215,6 +222,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     recepcion: 'Recepcion',
     limpieza: 'Limpieza',
     contabilidad: 'Contabilidad',
+    restaurante: 'Restaurante',
   };
 
   async function handleLogout() {
@@ -238,10 +246,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     >
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-2 mb-6">
-        <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground shadow-sm">
-          <Bed size={16} weight="bold" />
-        </div>
-        <span className="font-extrabold text-sm tracking-tight text-foreground">Sistema Hotelero</span>
+        <img src="/sh/logo-pinar.png" alt="El Pinar" className="w-9 h-9 rounded-lg object-contain bg-white shadow-sm p-0.5" />
+        <span className="font-extrabold text-sm tracking-tight text-foreground">El Pinar</span>
       </div>
 
       {/* Navigation */}
@@ -281,9 +287,9 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           <>
             <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest px-3 mt-5 mb-2">Admin</p>
             {user.role === 'superadmin' && (
-              <NavLinkItem to="/settings/users" icon={Users} label="Usuarios" onNavigate={onNavigate} />
+              <NavLinkItem to="/configuracion/usuarios" icon={Users} label="Usuarios" onNavigate={onNavigate} />
             )}
-            <NavLinkItem to="/settings/audit" icon={Notebook} label="Audit log" onNavigate={onNavigate} />
+            <NavLinkItem to="/configuracion/auditoria" icon={Notebook} label="Audit log" onNavigate={onNavigate} />
           </>
         )}
       </nav>
@@ -309,14 +315,14 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         <NavLinkItem to="/ayuda" icon={Question} label="Ayuda" onNavigate={onNavigate} />
 
         {(user.role === 'superadmin' || user.role === 'admin') && (
-          <NavLinkItem to="/settings" icon={Gear} label="Configuracion" onNavigate={onNavigate} />
+          <NavLinkItem to="/configuracion" icon={Gear} label="Configuracion" onNavigate={onNavigate} />
         )}
 
         <div className="flex items-center gap-3 px-2">
           <button
             type="button"
             onClick={() => {
-              navigate('/profile');
+              navigate('/perfil');
               onNavigate?.();
             }}
             className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-extrabold text-xs hover:bg-primary/20 transition-colors"
@@ -327,7 +333,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           <button
             type="button"
             onClick={() => {
-              navigate('/profile');
+              navigate('/perfil');
               onNavigate?.();
             }}
             className="flex-1 min-w-0 text-left"

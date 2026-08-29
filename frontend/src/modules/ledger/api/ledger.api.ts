@@ -1,4 +1,5 @@
 import { supabase, invokeFunction } from '../../../shared/lib/supabase';
+import { cached, invalidate } from '../../../shared/lib/cached';
 import type { PaginatedResponse } from '../../../shared/api/client';
 
 export type LedgerType = 'ingreso' | 'egreso';
@@ -30,6 +31,13 @@ export interface LedgerSummary {
 }
 
 export async function listCategories(params?: { type?: LedgerType; active?: boolean }): Promise<LedgerCategory[]> {
+  if (params?.active === true && !params.type) {
+    return cached('ledger_categories:active', 5 * 60_000, async () => {
+      const { data, error } = await supabase.from('ledger_categories').select('*').eq('active', true).order('nombre');
+      if (error) throw new Error(error.message);
+      return (data ?? []) as LedgerCategory[];
+    });
+  }
   let q = supabase.from('ledger_categories').select('*').order('nombre');
   if (params?.type) q = q.eq('type', params.type);
   if (params?.active !== undefined) q = q.eq('active', params.active);
@@ -41,6 +49,7 @@ export async function listCategories(params?: { type?: LedgerType; active?: bool
 export async function createCategory(data: { nombre: string; slug: string; type: LedgerType }): Promise<LedgerCategory> {
   const { data: row, error } = await supabase.from('ledger_categories').insert(data).select('*').single();
   if (error) throw new Error(error.message);
+  invalidate('ledger_categories:active');
   return row as LedgerCategory;
 }
 
@@ -56,6 +65,7 @@ export async function updateCategory(id: number, data: Partial<LedgerCategory>):
 export async function deleteCategory(id: number): Promise<void> {
   const { error } = await supabase.from('ledger_categories').delete().eq('id', id);
   if (error) throw new Error(error.message);
+  invalidate('ledger_categories:active');
 }
 
 export async function listLedger(params?: {
@@ -111,7 +121,7 @@ export async function createLedger(data: {
     fecha: data.fecha,
     descripcion: data.descripcion,
     monto: data.monto,
-    moneda: data.moneda ?? 'USD',
+    moneda: data.moneda ?? 'EUR',
     method: data.method ?? null,
     booking_id: data.booking_id ?? null,
     customer_id: data.customer_id ?? null,
