@@ -1,39 +1,71 @@
 -- =============================================================================
 -- Seed data — Sistema Hotelero
 -- =============================================================================
--- Se ejecuta despues de migraciones en `supabase db reset` y en `supabase start`.
--- El usuario superadmin se crea separado via Supabase Auth (ver scripts/create-admin.ts
--- o el dashboard -> Authentication -> Add user).
+-- Se ejecuta despues de las migraciones en `supabase db reset` y `supabase start`.
+--
+-- Crea UN hotel de demostracion con sus datos base. Desde que el sistema es
+-- multi-cliente, ningun dato de negocio puede existir sin hotel: cada fila
+-- pertenece a uno, y el seed no es una excepcion.
+--
+-- Corre sin sesion de usuario, asi que current_hotel_id() devuelve NULL y el
+-- trigger que rellena hotel_id no puede ayudar: aqui se indica explicitamente.
+--
+-- Los usuarios se crean aparte, via Supabase Auth (scripts/create-admin.ts o el
+-- panel -> Authentication -> Add user) y se enlazan con hotel_members.
 
--- Tipos de cabana base (se pueden agregar mas desde la UI)
-INSERT INTO public.room_types (nombre, slug, descripcion, capacidad, tarifa_dia, tarifa_semana, tarifa_mes, moneda, amenities) VALUES
-    ('Matrimonial Sencilla', 'matrimonial-sencilla', 'Cabana matrimonial con cama sencilla.', 2, 30.00, 180.00, 700.00, 'USD', '["cama matrimonial","bano privado","ventilador"]'::jsonb),
-    ('Matrimonial Grande',   'matrimonial-grande',   'Cabana matrimonial con cama grande (queen/king).', 2, 40.00, 240.00, 900.00, 'USD', '["cama king","bano privado","aire acondicionado"]'::jsonb),
-    ('Cabana 3 personas',    'cabana-3',             'Cabana para 3 huespedes.', 3, 50.00, 300.00, 1100.00, 'USD', '["3 camas","bano privado"]'::jsonb),
-    ('Cabana 4 personas',    'cabana-4',             'Cabana para 4 huespedes.', 4, 65.00, 400.00, 1400.00, 'USD', '["4 camas","bano privado","cocina"]'::jsonb),
-    ('Cabana 5 personas',    'cabana-5',             'Cabana para 5 huespedes.', 5, 80.00, 480.00, 1700.00, 'USD', '["5 camas","bano privado","cocina"]'::jsonb),
-    ('Cabana 6 personas',    'cabana-6',             'Cabana para 6 huespedes.', 6, 95.00, 570.00, 2000.00, 'USD', '["6 camas","2 banos","cocina","sala"]'::jsonb),
-    ('Cabana 7 personas',    'cabana-7',             'Cabana para 7 huespedes.', 7, 110.00, 660.00, 2300.00, 'USD', '["7 camas","2 banos","cocina","sala"]'::jsonb),
-    ('Matrimonial Doble',    'matrimonial-doble',    'Cabana con dos camas matrimoniales (ideal para 4 huespedes).', 4, 55.00, 330.00, 1200.00, 'USD', '["2 camas matrimoniales","bano privado","aire acondicionado"]'::jsonb)
-ON CONFLICT (slug) DO NOTHING;
+DO $$
+DECLARE
+    v_hotel_id BIGINT;
+BEGIN
+    -- Hotel de demostracion. Nombre generico a proposito: esto es el producto,
+    -- no el sistema de un cliente concreto.
+    --
+    -- La migracion 20260830000000 ya crea un hotel para poder asignarle los
+    -- datos que vienen de las migraciones anteriores. Se reutiliza ese en vez de
+    -- crear otro, o cada instalacion limpia arrancaria con dos hoteles y el
+    -- usuario tendria que elegir entre uno vacio y otro con sus datos.
+    SELECT id INTO v_hotel_id FROM public.hotels ORDER BY id LIMIT 1;
 
--- Categorias de ledger por defecto
-INSERT INTO public.ledger_categories (nombre, slug, type) VALUES
-    ('Alojamiento',        'alojamiento',        'ingreso'),
-    ('Servicios extra',    'servicios-extra',    'ingreso'),
-    ('Restauracion',       'restauracion',       'ingreso'),
-    ('Otros ingresos',     'otros-ingresos',     'ingreso'),
-    ('Nomina',             'nomina',             'egreso'),
-    ('Servicios publicos', 'servicios-publicos', 'egreso'),
-    ('Suministros',        'suministros',        'egreso'),
-    ('Mantenimiento',      'mantenimiento',      'egreso'),
-    ('Impuestos',          'impuestos',          'egreso'),
-    ('Otros egresos',      'otros-egresos',      'egreso')
-ON CONFLICT (slug) DO NOTHING;
+    IF v_hotel_id IS NULL THEN
+        INSERT INTO public.hotels (nombre, slug, plan, subscription_status, trial_ends_at)
+        VALUES ('Hotel Demo', 'hotel-demo', 'profesional', 'trialing', now() + INTERVAL '30 days')
+        RETURNING id INTO v_hotel_id;
+    ELSE
+        UPDATE public.hotels
+           SET nombre = 'Hotel Demo', slug = 'hotel-demo', plan = 'profesional'
+         WHERE id = v_hotel_id;
+    END IF;
 
--- Settings base
-INSERT INTO public.settings (key, value) VALUES
-    ('hotel.moneda_base', '"USD"'::jsonb),
-    ('hotel.iva_pct',     '16'::jsonb),
-    ('hotel.nombre',      '"TODO — completar"'::jsonb)
-ON CONFLICT (key) DO NOTHING;
+    -- Tipos de alojamiento de ejemplo. Se editan o se borran desde la interfaz.
+    INSERT INTO public.room_types (hotel_id, nombre, slug, descripcion, capacidad, tarifa_dia, tarifa_semana, tarifa_mes, moneda, amenities) VALUES
+        (v_hotel_id, 'Individual', 'individual', 'Habitacion individual.',                    1, 25.00, 150.00,  550.00, 'USD', '["cama individual","bano privado","ventilador"]'::jsonb),
+        (v_hotel_id, 'Doble',      'doble',      'Habitacion doble con cama matrimonial.',    2, 40.00, 240.00,  900.00, 'USD', '["cama matrimonial","bano privado","aire acondicionado"]'::jsonb),
+        (v_hotel_id, 'Triple',     'triple',     'Habitacion para tres huespedes.',           3, 55.00, 330.00, 1200.00, 'USD', '["3 camas","bano privado","aire acondicionado"]'::jsonb),
+        (v_hotel_id, 'Familiar',   'familiar',   'Habitacion familiar para cuatro personas.', 4, 70.00, 420.00, 1500.00, 'USD', '["2 camas matrimoniales","bano privado","aire acondicionado","nevera"]'::jsonb),
+        (v_hotel_id, 'Suite',      'suite',      'Suite con sala independiente.',             2, 90.00, 540.00, 2000.00, 'USD', '["cama king","sala","bano privado","aire acondicionado","nevera","TV"]'::jsonb)
+    ON CONFLICT (hotel_id, slug) DO NOTHING;
+
+    -- Categorias contables. Sin ellas no se puede registrar el primer ingreso
+    -- ni el primer gasto.
+    INSERT INTO public.ledger_categories (hotel_id, nombre, slug, type) VALUES
+        (v_hotel_id, 'Alojamiento',        'alojamiento',        'ingreso'),
+        (v_hotel_id, 'Servicios extra',    'servicios-extra',    'ingreso'),
+        (v_hotel_id, 'Restauracion',       'restauracion',       'ingreso'),
+        (v_hotel_id, 'Otros ingresos',     'otros-ingresos',     'ingreso'),
+        (v_hotel_id, 'Nomina',             'nomina',             'egreso'),
+        (v_hotel_id, 'Servicios publicos', 'servicios-publicos', 'egreso'),
+        (v_hotel_id, 'Suministros',        'suministros',        'egreso'),
+        (v_hotel_id, 'Mantenimiento',      'mantenimiento',      'egreso'),
+        (v_hotel_id, 'Impuestos',          'impuestos',          'egreso'),
+        (v_hotel_id, 'Otros egresos',      'otros-egresos',      'egreso')
+    ON CONFLICT (hotel_id, slug) DO NOTHING;
+
+    -- Ajustes del hotel.
+    INSERT INTO public.settings (hotel_id, key, value) VALUES
+        (v_hotel_id, 'hotel.nombre',      '"Hotel Demo"'::jsonb),
+        (v_hotel_id, 'hotel.moneda_base', '"USD"'::jsonb),
+        (v_hotel_id, 'hotel.iva_pct',     '16'::jsonb)
+    ON CONFLICT (hotel_id, key) DO NOTHING;
+
+    RAISE NOTICE 'Seed aplicado sobre el hotel % (Hotel Demo)', v_hotel_id;
+END $$;

@@ -2,14 +2,16 @@
 // formulario a la derecha. En mobile solo el formulario.
 
 import { useState, type FormEvent } from 'react';
-import { useNavigate, useLocation, type Location } from 'react-router-dom';
+import { Link, useNavigate, useLocation, type Location } from 'react-router-dom';
 import {
   Bed, Eye, EyeSlash, EnvelopeSimple, Lock,
   CalendarBlank, CurrencyCircleDollar, ChartLineUp, ShieldCheck,
   ArrowRight, Lightning, Warning,
+  ArrowLeft,
 } from '@phosphor-icons/react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { cn } from '../../../shared/lib/cn';
+import { APP_NAME, APP_TAGLINE, APP_LOGO } from '../../../shared/lib/brand';
 
 const DEMO_USERS: Array<{ email: string; role: string; description: string; color: string }> = [
   { email: 'admin@local.test', role: 'Superadmin', description: 'Acceso total + gestion usuarios', color: 'bg-violet-500' },
@@ -20,6 +22,26 @@ const DEMO_USERS: Array<{ email: string; role: string; description: string; colo
 
 const DEMO_PASSWORD = 'admin123';
 const isDevMode = (import.meta.env.MODE ?? 'development') !== 'production';
+
+/**
+ * Mensaje presentable para un fallo de autenticacion.
+ *
+ * fetch rechaza con TypeError cuando no hay servidor, no hay red o CORS lo
+ * bloquea, y su mensaje nativo ("Failed to fetch" / "Load failed") no le dice
+ * nada a un recepcionista. El login es la unica pantalla a la que llega alguien
+ * sin sesion: es justo donde peor sienta un error en ingles y sin contexto.
+ */
+function mensajeDeError(err: unknown, fallback: string): string {
+  if (err instanceof TypeError && /fetch|network|load failed/i.test(err.message)) {
+    return 'No se pudo conectar con el servidor. Revisa tu conexion; si persiste, avisa al administrador.';
+  }
+  if (err instanceof Error && err.message) {
+    if (/invalid login credentials/i.test(err.message)) return 'Email o contrasena incorrectos.';
+    if (/email not confirmed/i.test(err.message)) return 'Tu cuenta aun no esta confirmada.';
+    return err.message;
+  }
+  return fallback;
+}
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -45,7 +67,7 @@ export default function LoginPage() {
       const from = location.state?.from?.pathname ?? '/';
       navigate(from, { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Credenciales incorrectas');
+      setError(mensajeDeError(err, 'Credenciales incorrectas'));
     } finally { setLoading(false); }
   }
 
@@ -58,7 +80,7 @@ export default function LoginPage() {
       await login(demoEmail, DEMO_PASSWORD);
       navigate('/', { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo iniciar sesion demo');
+      setError(mensajeDeError(err, 'No se pudo iniciar sesion demo'));
     } finally { setLoading(false); }
   }
 
@@ -71,15 +93,18 @@ export default function LoginPage() {
         <div aria-hidden="true" className="absolute inset-0 bg-[radial-gradient(circle_at_1px_1px,_rgba(255,255,255,0.08)_1px,_transparent_0)] bg-[length:24px_24px] opacity-50" />
 
         <div className="relative z-10">
-          <div className="flex items-center gap-3 mb-12">
+          <Link
+            to="/bienvenido"
+            className="flex items-center gap-3 mb-12 rounded-xl transition-opacity hover:opacity-80"
+          >
             <div className="w-14 h-14 rounded-2xl bg-white flex items-center justify-center shadow-lg overflow-hidden p-1">
-              <img src="/sh/logo-pinar.png" alt="El Pinar" className="w-full h-full object-contain" />
+              <img src={APP_LOGO} alt="" className="w-full h-full object-contain" />
             </div>
             <div>
-              <p className="text-lg font-extrabold tracking-tight leading-none">El Pinar</p>
-              <p className="text-[11px] text-white/70 mt-1">Sistema Hotelero</p>
+              <p className="text-lg font-extrabold tracking-tight leading-none">{APP_NAME}</p>
+              <p className="text-[11px] text-white/70 mt-1">{APP_TAGLINE}</p>
             </div>
-          </div>
+          </Link>
 
           <h1 className="text-4xl xl:text-5xl font-extrabold tracking-tight leading-[1.05]">
             Tu hotel, <br />
@@ -107,11 +132,24 @@ export default function LoginPage() {
       <main className="flex-1 flex items-center justify-center p-6 lg:p-12 bg-background relative">
         <div aria-hidden="true" className="lg:hidden absolute inset-0 bg-[radial-gradient(circle_at_50%_-20%,_hsl(var(--primary)/0.15),_transparent_50%)] pointer-events-none" />
 
+        {/* Salida a la landing. En movil el panel de marca no existe, asi que
+            sin esto no habria forma de volver salvo el boton del navegador. */}
+        <Link
+          to="/bienvenido"
+          className="absolute left-5 top-5 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground lg:left-8 lg:top-8"
+        >
+          <ArrowLeft size={14} weight="bold" aria-hidden="true" />
+          Volver
+        </Link>
+
         <div className="relative w-full max-w-sm">
-          <div className="lg:hidden flex items-center justify-center gap-3 mb-8">
-            <img src="/sh/logo-pinar.png" alt="El Pinar" className="w-14 h-14 rounded-2xl bg-white shadow-lg object-contain p-1" />
-            <span className="text-lg font-extrabold tracking-tight">El Pinar</span>
-          </div>
+          <Link
+            to="/bienvenido"
+            className="lg:hidden flex items-center justify-center gap-3 mb-8 transition-opacity hover:opacity-80"
+          >
+            <img src={APP_LOGO} alt="" className="w-14 h-14 rounded-2xl bg-white shadow-lg object-contain p-1" />
+            <span className="text-lg font-extrabold tracking-tight">{APP_NAME}</span>
+          </Link>
 
           <div className="space-y-2 mb-8">
             <h2 className="text-3xl font-extrabold tracking-tight">Bienvenido</h2>

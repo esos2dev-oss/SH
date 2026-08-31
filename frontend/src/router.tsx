@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate, useRouteError } from 'react-router-dom';
+import { createBrowserRouter, Navigate, useParams, useRouteError } from 'react-router-dom';
 import { lazy, Suspense, useEffect, type ReactNode } from 'react';
 
 import { AuthLayout } from './layouts/AuthLayout';
@@ -6,6 +6,15 @@ import { AppLayout } from './layouts/AppLayout';
 import { ProtectedRoute } from './shared/components/layout/ProtectedRoute';
 import { RoleRoute } from './shared/components/layout/RoleRoute';
 import { useAuth } from './contexts/AuthContext';
+
+// Redirect que conserva los parametros de la ruta.
+// <Navigate to="/huespedes/:id"> no sustituye nada: navega a la URL literal
+// "/huespedes/:id", que no existe y acaba en el NotFound.
+function RedirectWithParams({ to }: { to: string }) {
+  const params = useParams();
+  const target = to.replace(/:([A-Za-z0-9_]+)/g, (match, key) => params[key] ?? match);
+  return <Navigate to={target} replace />;
+}
 
 // Index redirect: rol limpieza va siempre a /limpieza.
 function IndexRoute({ children }: { children: ReactNode }) {
@@ -53,6 +62,9 @@ const MaintenancePage = lazy(() => import('./modules/maintenance/pages/Maintenan
 const BreakfastPage = lazy(() => import('./modules/breakfast/pages/BreakfastPage'));
 const AttendancePage = lazy(() => import('./modules/attendance/pages/AttendancePage'));
 const PlantaPage = lazy(() => import('./modules/planta/pages/PlantaPage'));
+const PlansPage = lazy(() => import('./modules/billing/pages/PlansPage'));
+const OnboardingPage = lazy(() => import('./modules/billing/pages/OnboardingPage'));
+const LandingPage = lazy(() => import('./modules/landing/pages/LandingPage'));
 
 const NotFoundPage = lazy(() => import('./shared/pages/NotFoundPage'));
 
@@ -101,9 +113,16 @@ export const router = createBrowserRouter(
       element: <AuthLayout />,
       errorElement: <RouteErrorBoundary />,
       children: [
+        { path: '/bienvenido', element: <Suspended><LandingPage /></Suspended> },
         { path: '/login', element: <Suspended><LoginPage /></Suspended> },
         { path: '/establecer-clave', element: <Suspended><SetPasswordPage /></Suspended> },
       ],
+    },
+    // Alta de hotel: a pantalla completa, sin el layout de la aplicacion. Pide
+    // sesion pero no hotel — es justo lo que viene a crear.
+    {
+      path: '/nuevo-hotel',
+      element: <ProtectedRoute><Suspended><OnboardingPage /></Suspended></ProtectedRoute>,
     },
     {
       element: <ProtectedRoute><AppLayout /></ProtectedRoute>,
@@ -158,18 +177,20 @@ export const router = createBrowserRouter(
         { path: 'configuracion', element: <RoleRoute allowed={['superadmin', 'admin']}><Suspended><SettingsHubPage /></Suspended></RoleRoute> },
         { path: 'configuracion/usuarios', element: <RoleRoute allowed={['superadmin']}><Suspended><UsersAdminPage /></Suspended></RoleRoute> },
         { path: 'configuracion/auditoria', element: <RoleRoute allowed={['superadmin', 'admin']}><Suspended><AuditLogPage /></Suspended></RoleRoute> },
+        // Suscripcion: la ve cualquiera del hotel, pero solo el owner puede contratar.
+        { path: 'suscripcion', element: <Suspended><PlansPage /></Suspended> },
 
         // === Redirects retrocompatibilidad (bookmarks/enlaces viejos en ingles) ===
         { path: 'rooms', element: <Navigate to="/habitaciones" replace /> },
         { path: 'rooms/types', element: <Navigate to="/habitaciones/tipos" replace /> },
         { path: 'customers', element: <Navigate to="/huespedes" replace /> },
-        { path: 'customers/:id', element: <Navigate to="/huespedes/:id" replace /> },
+        { path: 'customers/:id', element: <RedirectWithParams to="/huespedes/:id" /> },
         { path: 'bookings', element: <Navigate to="/reservas" replace /> },
         { path: 'bookings/calendar', element: <Navigate to="/reservas/calendario" replace /> },
         { path: 'bookings/timeline', element: <Navigate to="/reservas/timeline" replace /> },
-        { path: 'bookings/:id', element: <Navigate to="/reservas/:id" replace /> },
-        { path: 'check-ins/new/:bookingId', element: <Navigate to="/check-in/nuevo/:bookingId" replace /> },
-        { path: 'check-ins/:bookingId', element: <Navigate to="/check-in/:bookingId" replace /> },
+        { path: 'bookings/:id', element: <RedirectWithParams to="/reservas/:id" /> },
+        { path: 'check-ins/new/:bookingId', element: <RedirectWithParams to="/check-in/nuevo/:bookingId" /> },
+        { path: 'check-ins/:bookingId', element: <RedirectWithParams to="/check-in/:bookingId" /> },
         { path: 'cleaning', element: <Navigate to="/limpieza" replace /> },
         { path: 'payments', element: <Navigate to="/pagos" replace /> },
         { path: 'payments/bank', element: <Navigate to="/pagos/conciliacion" replace /> },

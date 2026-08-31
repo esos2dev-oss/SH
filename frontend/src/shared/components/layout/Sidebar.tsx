@@ -1,6 +1,6 @@
 // Sidebar principal con navegacion filtrada por rol.
 
-import { useState, type ComponentType } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
   House,
@@ -24,11 +24,15 @@ import {
   Coffee,
   Clock,
   Lightning,
+  CreditCard,
   type IconProps,
 } from '@phosphor-icons/react';
 import { useAuth, type Role } from '../../../contexts/AuthContext';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { cn } from '../../lib/cn';
+import { APP_NAME, APP_LOGO } from '../../lib/brand';
+import { HotelSwitcher } from '../../../modules/billing/components/HotelSwitcher';
+import { getHotelConfig } from '../../../modules/billing/api/hotels.api';
 
 type IconType = ComponentType<IconProps>;
 
@@ -37,12 +41,17 @@ interface NavItemDef {
   label: string;
   icon?: IconType;
   roles?: Role[];
+  /** Modulo opcional del que depende. Si el hotel no lo activo en el alta, la
+   *  entrada no se enseña: un menu con diez secciones que no usas hace parecer
+   *  complicado un sistema que no lo es. Sin valor = siempre visible. */
+  modulo?: string;
 }
 
 interface NavGroupDef {
   label: string;
   icon: IconType;
   roles?: Role[];
+  modulo?: string;
   children: NavItemDef[];
 }
 
@@ -62,23 +71,23 @@ const NAV: NavEntry[] = [
       { to: '/habitaciones', label: 'Panel', roles: ['superadmin', 'admin', 'recepcion'] },
       { to: '/habitaciones/tipos', label: 'Tipos y tarifas', roles: ['superadmin', 'admin'] },
       { to: '/limpieza', label: 'Limpieza', roles: ['superadmin', 'admin', 'limpieza'] },
-      { to: '/mantenimiento', label: 'Mantenimiento', roles: ['superadmin', 'admin', 'recepcion', 'limpieza', 'contabilidad'] },
+      { to: '/mantenimiento', label: 'Mantenimiento', modulo: 'mantenimiento', roles: ['superadmin', 'admin', 'recepcion', 'limpieza', 'contabilidad'] },
     ],
   },
   { label: 'Reservas', to: '/reservas', icon: CalendarBlank, roles: ['superadmin', 'admin', 'recepcion', 'contabilidad'] },
   { label: 'Calendario', to: '/reservas/calendario', icon: ClipboardText, roles: ['superadmin', 'admin', 'recepcion'] },
   { label: 'Timeline', to: '/reservas/timeline', icon: ClipboardText, roles: ['superadmin', 'admin', 'recepcion'] },
   { label: 'Huespedes', to: '/huespedes', icon: UserCircle, roles: ['superadmin', 'admin', 'recepcion', 'contabilidad'] },
-  { label: 'Desayunos', to: '/desayunos', icon: Coffee, roles: ['superadmin', 'admin', 'recepcion', 'contabilidad', 'restaurante'] },
-  { label: 'Asistencia', to: '/asistencia', icon: Clock },
-  { label: 'Planta electrica', to: '/planta', icon: Lightning, roles: ['superadmin', 'admin', 'recepcion', 'limpieza', 'contabilidad'] },
+  { label: 'Desayunos', to: '/desayunos', icon: Coffee, modulo: 'desayunos', roles: ['superadmin', 'admin', 'recepcion', 'contabilidad', 'restaurante'] },
+  { label: 'Asistencia', to: '/asistencia', icon: Clock, modulo: 'asistencia' },
+  { label: 'Planta electrica', to: '/planta', icon: Lightning, modulo: 'planta', roles: ['superadmin', 'admin', 'recepcion', 'limpieza', 'contabilidad'] },
   {
     label: 'Pagos',
     icon: CurrencyCircleDollar,
     roles: ['superadmin', 'admin', 'recepcion', 'contabilidad'],
     children: [
       { to: '/pagos', label: 'Lista de pagos' },
-      { to: '/pagos/conciliacion', label: 'Conciliacion bancaria', roles: ['superadmin', 'admin', 'contabilidad'] },
+      { to: '/pagos/conciliacion', label: 'Conciliacion bancaria', modulo: 'conciliacion', roles: ['superadmin', 'admin', 'contabilidad'] },
       { to: '/pagos/cierre-caja', label: 'Cierre de caja' },
       { to: '/pagos/configuracion', label: 'Configuracion', roles: ['superadmin', 'admin'] },
     ],
@@ -94,7 +103,10 @@ const NAV: NavEntry[] = [
   },
 ];
 
-function canSee(entry: NavEntry, role: Role): boolean {
+function canSee(entry: NavEntry, role: Role, modulos: string[] | null): boolean {
+  // modulos === null significa "todavia no se ha cargado la configuracion": se
+  // enseña todo. Ocultar entradas mientras carga produce un menu que salta.
+  if (entry.modulo && modulos !== null && !modulos.includes(entry.modulo)) return false;
   if (!entry.roles) return true;
   return entry.roles.includes(role);
 }
@@ -138,11 +150,12 @@ function NavLinkItem({ to, icon: Icon, label, onNavigate, end }: NavLinkItemProp
 interface NavGroupProps {
   group: NavGroupDef;
   role: Role;
+  modulos: string[] | null;
   onNavigate?: () => void;
 }
 
-function NavGroup({ group, role, onNavigate }: NavGroupProps) {
-  const visible = group.children.filter((c) => canSee(c, role));
+function NavGroup({ group, role, modulos, onNavigate }: NavGroupProps) {
+  const visible = group.children.filter((c) => canSee(c, role, modulos));
   const location = useLocation();
   const hasActive = visible.some((c) => location.pathname === c.to || location.pathname.startsWith(c.to + '/'));
   const [open, setOpen] = useState(hasActive);
@@ -205,6 +218,18 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const { user, logout } = useAuth();
   const { theme, setTheme } = useTheme();
 
+  // Modulos que el hotel activo eligio en el alta guiada. Null mientras carga.
+  const [modulos, setModulos] = useState<string[] | null>(null);
+  useEffect(() => {
+    let cancelado = false;
+    getHotelConfig()
+      .then((cfg) => { if (!cancelado && cfg) setModulos(cfg.modulos ?? []); })
+      // Si falla, se queda en null y se enseña el menu completo: preferimos
+      // enseñar de mas que dejar a alguien sin acceso a su propia seccion.
+      .catch(() => {});
+    return () => { cancelado = true; };
+  }, []);
+
   if (!user) return null;
 
   const initials =
@@ -246,20 +271,22 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     >
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-2 mb-6">
-        <img src="/sh/logo-pinar.png" alt="El Pinar" className="w-9 h-9 rounded-lg object-contain bg-white shadow-sm p-0.5" />
-        <span className="font-extrabold text-sm tracking-tight text-foreground">El Pinar</span>
+        <img src={APP_LOGO} alt={APP_NAME} className="w-9 h-9 rounded-lg object-contain bg-white shadow-sm p-0.5" />
+        <span className="font-extrabold text-sm tracking-tight text-foreground">{APP_NAME}</span>
       </div>
+
+      <HotelSwitcher onNavigate={onNavigate} />
 
       {/* Navigation */}
       <nav className="space-y-0.5 flex-1 overflow-y-auto -mx-1 px-1">
         <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest px-3 mb-2">Operacion</p>
         {(() => {
-          const visibleEntries = NAV.filter((e) => canSee(e, user.role));
+          const visibleEntries = NAV.filter((e) => canSee(e, user.role, modulos));
           // Recopilar todas las URLs (top-level + children) para detectar prefijos.
           const allUrls: string[] = [];
           for (const e of visibleEntries) {
             if (isGroup(e)) {
-              for (const c of e.children) if (canSee(c, user.role)) allUrls.push(c.to);
+              for (const c of e.children) if (canSee(c, user.role, modulos)) allUrls.push(c.to);
             } else {
               allUrls.push(e.to);
             }
@@ -269,7 +296,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
 
           return visibleEntries.map((entry) =>
             isGroup(entry) ? (
-              <NavGroup key={entry.label} group={entry} role={user.role} onNavigate={onNavigate} />
+              <NavGroup key={entry.label} group={entry} role={user.role} modulos={modulos} onNavigate={onNavigate} />
             ) : (
               <NavLinkItem
                 key={entry.to}
@@ -290,6 +317,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               <NavLinkItem to="/configuracion/usuarios" icon={Users} label="Usuarios" onNavigate={onNavigate} />
             )}
             <NavLinkItem to="/configuracion/auditoria" icon={Notebook} label="Audit log" onNavigate={onNavigate} />
+            <NavLinkItem to="/suscripcion" icon={CreditCard} label="Suscripcion" onNavigate={onNavigate} />
           </>
         )}
       </nav>

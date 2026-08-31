@@ -1,0 +1,82 @@
+name: CI
+
+# Se ejecuta en cada push y en cada pull request. El objetivo no es tener un
+# tick verde: es que nadie pueda romper el aislamiento entre hoteles sin que
+# salte aqui. Ese fallo, en produccion, es una fuga de datos entre clientes.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  frontend:
+    name: Frontend (tipos y pruebas)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependencias
+        working-directory: frontend
+        run: npm ci
+
+      - name: Comprobar tipos
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Pruebas unitarias
+        working-directory: frontend
+        run: npm test
+
+      - name: Compilar
+        working-directory: frontend
+        run: npx vite build
+
+  base-de-datos:
+    name: Base de datos (migraciones y aislamiento)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # Levanta el stack completo aplicando TODAS las migraciones desde cero.
+      # Si una migracion no puede correr sobre una base limpia, aqui se cae —
+      # que es justo el fallo que tenia este proyecto y que nadie veia, porque
+      # se trabajaba siempre contra una base remota con estado acumulado.
+      - name: Levantar Supabase
+        run: supabase start
+
+      - name: Crear usuarios de prueba
+        run: node scripts/seed-demo-users.mjs
+
+      # ON_ERROR_STOP=1 hace que un assert fallido devuelva codigo != 0.
+      - name: Pruebas de aislamiento multi-tenant
+        run: |
+          docker exec -i supabase_db_sh psql -U postgres -d postgres \
+            -v ON_ERROR_STOP=1 < supabase/tests/aislamiento_multitenant.sql
+
+      - name: Comprobar que ninguna tabla se quedo sin RLS
+        run: |
+          docker exec supabase_db_sh psql -U postgres -d postgres -t -A -v ON_ERROR_STOP=1 -c "
+            DO \$\$
+            DECLARE v_sin_rls TEXT;
+            BEGIN
+              SELECT string_agg(tablename, ', ') INTO v_sin_rls
+                FROM pg_tables WHERE schemaname='public' AND rowsecurity = false;
+              IF v_sin_rls IS NOT NULL THEN
+                RAISE EXCEPTION 'Tablas sin RLS: %', v_sin_rls;
+              END IF;
+            END \$\$;"
+
+      - name: Parar Supabase
+        if: always()
+        run: supabase stop --no-backup

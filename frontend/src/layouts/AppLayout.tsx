@@ -9,6 +9,8 @@ import { QuickPaymentProvider } from '../modules/payments/hooks/QuickPaymentProv
 import { CommandPaletteProvider } from '../shared/components/command/CommandPaletteProvider';
 import { NotificationBell } from '../shared/components/notifications/NotificationBell';
 import { DialogProvider } from '../shared/components/ui/dialog-system';
+import { APP_NAME, APP_LOGO } from '../shared/lib/brand';
+import { SubscriptionBanner } from '../modules/billing/components/SubscriptionBanner';
 
 export function AppLayout() {
   const { user } = useAuth();
@@ -32,8 +34,8 @@ export function AppLayout() {
           <List size={22} weight="bold" />
         </button>
         <div className="ml-3 flex items-center gap-2 flex-1">
-          <img src="/sh/logo-pinar.png" alt="El Pinar" className="w-8 h-8 rounded-lg object-contain bg-white p-0.5" />
-          <span className="font-extrabold text-sm tracking-tight">El Pinar</span>
+          <img src={APP_LOGO} alt={APP_NAME} className="w-8 h-8 rounded-lg object-contain bg-white p-0.5" />
+          <span className="font-extrabold text-sm tracking-tight">{APP_NAME}</span>
         </div>
         <NotificationBell />
       </div>
@@ -72,6 +74,7 @@ export function AppLayout() {
 
       {/* Main content — contenedor centrado con max-w para no estirarse en pantallas anchas */}
       <main role="main" className="lg:ml-64 pt-[72px] lg:pt-0 min-h-screen">
+        <SubscriptionBanner />
         <div className="mx-auto w-full max-w-7xl px-4 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8 lg:pr-20">
           <Outlet />
         </div>

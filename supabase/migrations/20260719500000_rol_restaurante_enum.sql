@@ -1,0 +1,15 @@
+-- =============================================================================
+-- Agregar 'restaurante' al ENUM user_role — EN SU PROPIA MIGRACION
+-- =============================================================================
+-- En Postgres, un valor anadido con ALTER TYPE ... ADD VALUE no puede usarse
+-- hasta la transaccion siguiente. Como cada migracion corre en una transaccion,
+-- este ALTER tiene que ir en un fichero aparte, ANTES de la migracion que crea
+-- las policies que nombran el rol.
+--
+-- 20260720000000_rol_restaurante_y_pagos.sql lo dejaba comentado con la nota
+-- "aplicado por separado antes": se ejecuto a mano contra la base remota y
+-- nunca se commiteo. Sobre una base limpia eso hacia fallar la migracion:
+--
+--   ERROR: invalid input value for enum user_role: "restaurante" (SQLSTATE 22P02)
+--   At statement: 4  CREATE POLICY p_breakfast_select ...
+ALTER TYPE public.user_role ADD VALUE IF NOT EXISTS 'restaurante';

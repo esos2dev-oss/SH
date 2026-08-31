@@ -58,7 +58,11 @@ enable_signup = false
 enable_anonymous_sign_ins = false
 
 [auth.email]
-enable_signup = false
+# En el CLI local, de este enable_signup se deriva GOTRUE_EXTERNAL_EMAIL_ENABLED,
+# o sea el proveedor de email entero: con false, cualquier login devuelve
+# 422 email_provider_disabled y nadie puede entrar. El registro publico lo sigue
+# bloqueando enable_signup = false de la seccion [auth].
+enable_signup = true
 double_confirm_changes = true
 enable_confirmations = false
 secure_password_change = true
